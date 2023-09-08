@@ -213,17 +213,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust-codespaces"
-version = "0.1.0"
-dependencies = [
- "base32",
- "chrono",
- "hex",
- "hmac",
- "sha1",
-]
-
-[[package]]
 name = "sha1"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -260,6 +249,17 @@ dependencies = [
  "libc",
  "wasi",
  "winapi",
+]
+
+[[package]]
+name = "totp"
+version = "0.1.0"
+dependencies = [
+ "base32",
+ "chrono",
+ "hex",
+ "hmac",
+ "sha1",
 ]
 
 [[package]]
