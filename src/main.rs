@@ -1,9 +1,8 @@
 use std::convert::TryInto;
 use std::str;
 
-use base32;
-use chrono::{Datelike, Timelike, Utc};
-use hex;
+use chrono::Utc;
+// use hex;
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
 
@@ -18,7 +17,7 @@ fn truncate(mac: &Vec<u8>) -> u32 {
 }
 
 fn extract31(mac: &Vec<u8>, i: usize) -> [u8; 4] {
-    let mut extract: [u8;4] = mac[i..i + 4].try_into().unwrap();
+    let mut extract: [u8; 4] = mac[i..i + 4].try_into().unwrap();
     extract[0] &= 0x7F;
     extract
 }
