@@ -1,0 +1,14 @@
+[package]
+name = "rust-codespaces"
+version = "0.1.0"
+authors = ["Your Name"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = "0.4.29"
+sha1 = "0.10.5"
+hex = "0.4.3"
+hmac = "0.12.1"
+base32 = "0.4.0"
