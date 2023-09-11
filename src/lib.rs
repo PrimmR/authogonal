@@ -165,6 +165,8 @@ pub mod display {
                 tx.send(OTPMessage::Code(code)).unwrap();
 
                 thread::sleep(Duration::from_secs(2));
+            } else {
+                thread::sleep(Duration::from_millis(50));
             }
         });
         rx
