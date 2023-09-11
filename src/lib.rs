@@ -38,7 +38,10 @@ pub mod totp {
         let base32chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
         let upper = key.to_ascii_uppercase();
 
-        upper.chars().map(|c| validate(base32chars, c)).collect::<Result<(), char>>()?;
+        upper
+            .chars()
+            .map(|c| validate(base32chars, c))
+            .collect::<Result<(), char>>()?;
 
         let i = upper.chars().fold(String::new(), |acc, x| {
             acc + format!("{:05b}", base32chars.find(x).unwrap()).as_str()
@@ -117,5 +120,53 @@ pub mod totp {
         fn indvalid_to_b32() {
             assert_eq!(to_b32("&"), Err('&'));
         }
+    }
+}
+
+pub mod display {
+    use chrono::Timelike;
+    use chrono::Utc;
+
+    use std::sync::mpsc;
+    use std::sync::mpsc::Receiver;
+    // use std::sync::mpsc::TryRecvError;
+    use std::thread;
+    use std::time::Duration;
+
+    use totp::generate;
+
+    pub enum OTPMessage {
+        Code(u32),
+    }
+
+    pub fn update_display(key: &str) {
+        let otp_channel = spawn_thread(key);
+
+        loop {
+            match otp_channel.recv().unwrap() {
+                OTPMessage::Code(c) => println!("{:0>6}", c),
+            }
+        }
+    }
+
+    fn spawn_thread(key: &str) -> Receiver<OTPMessage> {
+        let (tx, rx) = mpsc::channel::<OTPMessage>();
+        let key_string = String::from(key);
+
+        let code = generate(key_string.as_str());
+        tx.send(OTPMessage::Code(code)).unwrap();
+
+        thread::spawn(move || loop {
+            let now = Utc::now();
+
+            if now.second() == 0 || now.second() == 30 {
+                let code = generate(key_string.as_str());
+
+                tx.send(OTPMessage::Code(code)).unwrap();
+
+                thread::sleep(Duration::from_secs(2));
+            }
+        });
+        rx
     }
 }
