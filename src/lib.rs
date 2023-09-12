@@ -1,6 +1,21 @@
 extern crate chrono;
 extern crate hmac;
+extern crate serde;
 extern crate sha1;
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Key {
+    pub key: String,
+    pub name: String,
+}
+
+impl Key {
+    pub fn new(key: String, name: String) -> Self {
+        Self { key, name }
+    }
+}
 
 pub mod totp {
     use std::convert::TryInto;
@@ -113,7 +128,8 @@ pub mod totp {
 
         #[test]
         fn empty_to_b32() {
-            assert_eq!(to_b32("").unwrap(), Vec::new());
+            let expect: Vec<u8> = Vec::new();
+            assert_eq!(to_b32("").unwrap(), expect);
         }
 
         #[test]
@@ -135,11 +151,13 @@ pub mod display {
 
     use totp::generate;
 
+    use crate::Key;
+
     pub enum OTPMessage {
         Code(u32),
     }
 
-    pub fn update_display(key: &str) {
+    pub fn display_key(key: Key) {
         let otp_channel = spawn_thread(key);
 
         loop {
@@ -149,9 +167,9 @@ pub mod display {
         }
     }
 
-    fn spawn_thread(key: &str) -> Receiver<OTPMessage> {
+    fn spawn_thread(key: Key) -> Receiver<OTPMessage> {
         let (tx, rx) = mpsc::channel::<OTPMessage>();
-        let key_string = String::from(key);
+        let key_string = key.key;
 
         let code = generate(key_string.as_str());
         tx.send(OTPMessage::Code(code)).unwrap();
@@ -168,5 +186,24 @@ pub mod display {
             }
         });
         rx
+    }
+}
+
+pub mod file {
+    use crate::Key;
+    use std::fs::File;
+    use std::io::{Read, Write};
+    use std::path::Path;
+
+    pub fn save(keys: Vec<Key>) {
+        let path = Path::new("keys.txt");
+        let file = File::create(path).unwrap();
+        serde_json::to_writer_pretty(file, &keys).unwrap();
+    }
+
+    pub fn load() -> Vec<Key> {
+        let file = File::open("keys.txt").unwrap();
+
+        serde_json::from_reader(file).unwrap()
     }
 }

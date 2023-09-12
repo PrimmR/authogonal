@@ -1,9 +1,12 @@
 extern crate totp;
-use totp::display::*;
+use totp::*;
 
 fn main() {
-    let key = "Primm";
-    update_display(key);
+    let keys = file::load();
+
+    // file::save(keys);
+
+    display::display_key(keys[0].clone());
 
     //let code = generate(key);
     //println!("OTP: {:0>6}", code);
