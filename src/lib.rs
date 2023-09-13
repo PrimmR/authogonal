@@ -133,7 +133,7 @@ pub mod totp {
         }
 
         #[test]
-        fn indvalid_to_b32() {
+        fn invalid_to_b32() {
             assert_eq!(to_b32("&"), Err('&'));
         }
     }
@@ -146,6 +146,7 @@ pub mod display {
     use std::sync::mpsc;
     use std::sync::mpsc::Receiver;
     // use std::sync::mpsc::TryRecvError;
+    use std::io;
     use std::thread;
     use std::time::Duration;
 
@@ -157,7 +158,7 @@ pub mod display {
         Code(u32),
     }
 
-    pub fn display_key(key: Key) {
+    pub fn display_key(key: &Key) {
         let otp_channel = spawn_thread(key);
 
         loop {
@@ -167,9 +168,9 @@ pub mod display {
         }
     }
 
-    fn spawn_thread(key: Key) -> Receiver<OTPMessage> {
+    fn spawn_thread(key: &Key) -> Receiver<OTPMessage> {
         let (tx, rx) = mpsc::channel::<OTPMessage>();
-        let key_string = key.key;
+        let key_string = key.key.clone();
 
         let code = generate(key_string.as_str());
         tx.send(OTPMessage::Code(code)).unwrap();
@@ -189,12 +190,31 @@ pub mod display {
         });
         rx
     }
+
+    pub fn display_choice(keys: &Vec<Key>) -> &Key {
+        loop {
+            let listing = keys
+                .iter()
+                .map(|k| format!("{}\n", k.name))
+                .collect::<String>();
+            println!("Codes:\n{}", listing);
+
+            let mut buffer = String::new();
+            io::stdin().read_line(&mut buffer).unwrap();
+            let n = buffer.trim();
+
+            if let Some(k) = keys.iter().find(|k| k.name == n) {
+                return k;
+            } else {
+                println!("\nPlease input a valid name\n")
+            }
+        }
+    }
 }
 
 pub mod file {
     use crate::Key;
     use std::fs::File;
-    use std::io::{Read, Write};
     use std::path::Path;
 
     pub fn save(keys: Vec<Key>) {

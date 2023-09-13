@@ -6,8 +6,6 @@ fn main() {
 
     // file::save(keys);
 
-    display::display_key(keys[0].clone());
-
-    //let code = generate(key);
-    //println!("OTP: {:0>6}", code);
+    let selected = display::display_choice(&keys);
+    display::display_key(selected);
 }
