@@ -224,8 +224,11 @@ pub mod file {
     }
 
     pub fn load() -> Vec<Key> {
-        let file = File::open("keys.txt").unwrap();
-
-        serde_json::from_reader(file).unwrap()
+        if let Ok(f) = File::open("keys.txt") {
+            serde_json::from_reader(f).unwrap()
+        } else {
+            save(Vec::new());
+            Vec::new()
+        }
     }
 }
