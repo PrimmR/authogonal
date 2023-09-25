@@ -1,5 +1,4 @@
 extern crate chrono;
-extern crate hmac;
 extern crate serde;
 extern crate sha1;
 
@@ -17,15 +16,101 @@ impl Key {
     }
 }
 
-pub mod totp {
+mod hash {
+    pub fn sha1(key: &[u8]) -> Vec<u8> {
+        use sha1::{Digest, Sha1};
+
+        let mut hasher = Sha1::new();
+        hasher.update(key);
+        let result = hasher.finalize();
+
+        result[..].to_vec()
+    }
+}
+
+pub mod hmac {
+    use crate::hash;
+    const IPAD: u8 = 0x36;
+    const OPAD: u8 = 0x5c;
+
+    pub fn generate(key: &[u8], message: &[u8]) -> Vec<u8> {
+        let block_size = 64;
+        // let output_size = 40;
+
+        let block_sized_key = compute_block_sized_key(key, block_size);
+
+        let input_key_pad: Vec<u8> = block_sized_key.iter().map(|x| x ^ IPAD).collect();
+        let output_key_pad: Vec<u8> = block_sized_key.iter().map(|x| x ^ OPAD).collect();
+
+        let digest: Vec<u8> = hash::sha1(&concat(input_key_pad, message.to_vec()));
+        hash::sha1(&concat(output_key_pad, digest))
+    }
+
+    fn compute_block_sized_key(key: &[u8], block_size: usize) -> Vec<u8> {
+        if key.len() > block_size {
+            hash::sha1(&key)
+        } else if key.len() < block_size {
+            pad(key, block_size)
+        } else {
+            key[..].to_vec()
+        }
+    }
+
+    fn pad(key: &[u8], block_size: usize) -> Vec<u8> {
+        // Panics if too large
+        let mut pad = key[..].to_vec();
+        // Pads to right
+        pad.resize(block_size, 0);
+        // pad.splice(..0, std::iter::repeat(0).take(block_size - pad.len())); // Pads to left
+        pad
+    }
+
+    fn concat(a: Vec<u8>, b: Vec<u8>) -> Vec<u8> {
+        vec![a, b].concat()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        extern crate hex;
+
+        #[test]
+        fn regular_hmac() {
+            let mac = generate(b"key", b"Primm");
+            assert_eq!(
+                mac,
+                hex::decode("cb32bca866c267d57a2143984bb7e3590095a1d7").unwrap()
+            )
+        }
+
+        #[test]
+        fn empty_hmac() {
+            let mac = generate(b"", b"");
+            assert_eq!(
+                mac,
+                hex::decode("fbdb1d1b18aa6c08324b7d64b71fb76370690e1d").unwrap()
+            )
+        }
+
+        #[test]
+        fn padding_key() {
+            assert_eq!(pad(&[20, 82], 8), vec![20, 82, 0, 0, 0, 0, 0, 0]);
+        }
+
+        #[test]
+        fn padding_key_shrink() {
+            assert_eq!(pad(&[20, 82], 1), vec![20]);
+        }
+    }
+}
+
+mod totp {
     use std::convert::TryInto;
     use std::str;
 
     use chrono::Utc;
-    use hmac::{Hmac, Mac};
-    use sha1::Sha1;
-
-    type HmacSha1 = Hmac<Sha1>;
+    use hmac;
+    // use sha1::Sha1;
 
     fn truncate(mac: &Vec<u8>) -> u32 {
         // Truncation first takes the 4 least significant bits of the MAC and uses them as a byte offset i:
@@ -78,10 +163,7 @@ pub mod totp {
         let now = Utc::now();
         let timestep = now.timestamp() / 30;
 
-        let mut mac = HmacSha1::new_from_slice(&b32key).expect("HMAC can take key of any size");
-        mac.update(&timestep.to_be_bytes());
-
-        let mac = mac.finalize().into_bytes()[..].to_vec();
+        let mac = hmac::generate(&b32key[..], &timestep.to_be_bytes());
 
         let totp = truncate(&mac) % 10_u32.pow(6);
 
