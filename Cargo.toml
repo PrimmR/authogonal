@@ -7,6 +7,5 @@ version = "0.1.0"
 [dependencies]
 chrono = "0.4.29"
 sha1 = "0.10.5"
-hex = "0.4.3"
 serde = {version = "1.0.188", features = ["derive"]}
 serde_json = "1.0.106"

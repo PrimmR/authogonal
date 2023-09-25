@@ -61,7 +61,6 @@ pub mod hmac {
         let mut pad = key[..].to_vec();
         // Pads to right
         pad.resize(block_size, 0);
-        // pad.splice(..0, std::iter::repeat(0).take(block_size - pad.len())); // Pads to left
         pad
     }
 
@@ -72,14 +71,16 @@ pub mod hmac {
     #[cfg(test)]
     mod tests {
         use super::*;
-        extern crate hex;
 
         #[test]
         fn regular_hmac() {
             let mac = generate(b"key", b"Primm");
             assert_eq!(
                 mac,
-                hex::decode("cb32bca866c267d57a2143984bb7e3590095a1d7").unwrap()
+                vec![
+                    203, 50, 188, 168, 102, 194, 103, 213, 122, 33, 67, 152, 75, 183, 227, 89, 0,
+                    149, 161, 215
+                ]
             )
         }
 
@@ -88,7 +89,10 @@ pub mod hmac {
             let mac = generate(b"", b"");
             assert_eq!(
                 mac,
-                hex::decode("fbdb1d1b18aa6c08324b7d64b71fb76370690e1d").unwrap()
+                vec![
+                    251, 219, 29, 27, 24, 170, 108, 8, 50, 75, 125, 100, 183, 31, 183, 99, 112,
+                    105, 14, 29
+                ]
             )
         }
 
