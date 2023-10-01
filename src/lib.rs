@@ -138,6 +138,7 @@ pub mod hash {
         pad
     }
 
+    #[cfg(test)]
     mod tests {
         use super::*;
 
