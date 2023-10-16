@@ -51,10 +51,13 @@ impl std::default::Default for CodeOptions {
 pub mod hash {
     use serde::{Deserialize, Serialize};
 
-    use self::sha1::sha1;
-
     pub trait Hash {
         fn to_vec(&self) -> Vec<u8>;
+        fn process_chunks(&self, chunk: &[u8]) -> Self;
+
+        fn get_block_size(&self) -> usize {
+            64
+        }
     }
 
     #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
@@ -67,18 +70,38 @@ pub mod hash {
     impl HashFn {
         pub fn digest(&self, message: &Vec<u8>) -> Vec<u8> {
             match self {
-                Self::SHA1 => sha1(&message),
-                Self::SHA256 => todo!(),
+                Self::SHA1 => hash(sha1::SHA1Hash::new(), message),
+                Self::SHA256 => hash(sha2::SHA256Hash::new(), message),
                 Self::SHA512 => todo!(),
             }
         }
+    }
+
+    pub fn hash<T: Hash + std::ops::Add<Output = T>>(hash: T, message: &[u8]) -> Vec<u8> {
+        // Message length in bits
+        let ml: u64 = TryInto::<u64>::try_into(message.len()).unwrap() * 8;
+        let mut message = message.to_vec();
+
+        // Pre-processing
+        message.push(0x80);
+
+        // message len needs to be multiple of (512-64)/8 = 56
+        message = pad_mult(message, hash.get_block_size(), 8);
+        message.append(&mut u64::to_be_bytes(ml).to_vec());
+
+        // chunk into 512/8= 64 byte chunks
+        let chunks = message.chunks(64);
+
+        let hash = chunks.fold(hash, |acc, x| acc.process_chunks(x) + acc);
+
+        hash.to_vec()
     }
 
     pub mod sha1 {
         use super::*;
 
         #[derive(Debug)]
-        struct SHA1Hash(u32, u32, u32, u32, u32);
+        pub struct SHA1Hash(u32, u32, u32, u32, u32);
 
         impl SHA1Hash {
             const H0: u32 = 0x67452301;
@@ -102,6 +125,51 @@ pub mod hash {
                 v.append(&mut self.4.to_be_bytes().to_vec());
                 v
             }
+
+            fn process_chunks(&self, chunk: &[u8]) -> SHA1Hash {
+                // Convert 64 byte chunks to 16 32-bit big-endian words
+                let mut words: Vec<u32> = chunk
+                    .chunks(4)
+                    .map(|x| u32::from_be_bytes(x.try_into().unwrap()))
+                    .collect();
+
+                // Creates 80 long vec
+                for i in 16..80 {
+                    let item = words[i - 3] ^ words[i - 8] ^ words[i - 14] ^ words[i - 16];
+                    words.push(left_rot(item, 1));
+                }
+
+                // Init values
+                let mut a = self.0;
+                let mut b = self.1;
+                let mut c = self.2;
+                let mut d = self.3;
+                let mut e = self.4;
+
+                for i in 0..80 {
+                    let (f, k): (u32, u32) = match i {
+                        0..=19 => (d ^ (b & (c ^ d)), 0x5A827999), // ((b & c) | (!b & d), 0xfa827999),
+                        20..=39 => (b ^ c ^ d, 0x6ed9eba1),
+                        40..=59 => ((b & c) | (b & d) | (c & d), 0x8f1bbcdc),
+                        _ => (b ^ c ^ d, 0xca62c1d6), // 60..=79
+                    };
+
+                    // Wrapping add keeps number as u32
+                    let temp = left_rot(a, 5)
+                        .wrapping_add(f)
+                        .wrapping_add(e)
+                        .wrapping_add(k)
+                        .wrapping_add(words[i]);
+
+                    e = d;
+                    d = c;
+                    c = left_rot(b, 30);
+                    b = a;
+                    a = temp;
+                }
+
+                SHA1Hash(a, b, c, d, e)
+            }
         }
 
         impl std::ops::Add for SHA1Hash {
@@ -118,78 +186,13 @@ pub mod hash {
                 )
             }
         }
-
-        pub fn sha1(message: &[u8]) -> Vec<u8> {
-            // Message length in bits
-            let ml: u64 = TryInto::<u64>::try_into(message.len()).unwrap() * 8;
-            let mut message = message.to_vec();
-
-            // Pre-processing
-            message.push(0x80);
-
-            // message len needs to be multiple of (512-64)/8 = 56
-            message = pad_mult(message, 64, 8);
-            message.append(&mut u64::to_be_bytes(ml).to_vec());
-
-            // chunk into 512/8= 64 byte chunks
-            let chunks = message.chunks(64);
-
-            let hash = chunks.fold(SHA1Hash::new(), |acc, x| process_chunks(&acc, x) + acc);
-
-            hash.to_vec()
-        }
-
-        fn process_chunks(hash: &SHA1Hash, chunk: &[u8]) -> SHA1Hash {
-            // Convert 64 byte chunks to 16 32-bit big-endian words
-            let mut words: Vec<u32> = chunk
-                .chunks(4)
-                .map(|x| u32::from_be_bytes(x.try_into().unwrap()))
-                .collect();
-
-            // Creates 80 long vec
-            for i in 16..80 {
-                let item = words[i - 3] ^ words[i - 8] ^ words[i - 14] ^ words[i - 16];
-                words.push(left_rot(item, 1));
-            }
-
-            // Init values
-            let mut a = hash.0;
-            let mut b = hash.1;
-            let mut c = hash.2;
-            let mut d = hash.3;
-            let mut e = hash.4;
-
-            for i in 0..80 {
-                let (f, k): (u32, u32) = match i {
-                    0..=19 => (d ^ (b & (c ^ d)), 0x5A827999), // ((b & c) | (!b & d), 0xfa827999),
-                    20..=39 => (b ^ c ^ d, 0x6ed9eba1),
-                    40..=59 => ((b & c) | (b & d) | (c & d), 0x8f1bbcdc),
-                    _ => (b ^ c ^ d, 0xca62c1d6), // 60..=79
-                };
-
-                // Wrapping add keeps number as u32
-                let temp = left_rot(a, 5)
-                    .wrapping_add(f)
-                    .wrapping_add(e)
-                    .wrapping_add(k)
-                    .wrapping_add(words[i]);
-
-                e = d;
-                d = c;
-                c = left_rot(b, 30);
-                b = a;
-                a = temp;
-            }
-
-            SHA1Hash(a, b, c, d, e)
-        }
     }
 
     pub mod sha2 {
         use super::*;
 
         #[derive(Debug)]
-        struct SHA256Hash(u32, u32, u32, u32, u32, u32, u32, u32);
+        pub struct SHA256Hash(u32, u32, u32, u32, u32, u32, u32, u32);
 
         impl SHA256Hash {
             const H0: u32 = 0x6A09E667;
@@ -241,6 +244,64 @@ pub mod hash {
                 v.append(&mut self.7.to_be_bytes().to_vec());
                 v
             }
+
+            fn process_chunks(&self, chunk: &[u8]) -> SHA256Hash {
+                // Convert 64 byte chunks to 16 32-bit big-endian words
+                let mut words: Vec<u32> = chunk
+                    .chunks(4)
+                    .map(|x| u32::from_be_bytes(x.try_into().unwrap()))
+                    .collect();
+
+                // Creates 64 long vec
+                for i in 16..64 {
+                    let s0 = right_rot(words[i - 15], 7)
+                        ^ right_rot(words[i - 15], 18)
+                        ^ (words[i - 15] >> 3);
+                    let s1 = right_rot(words[i - 2], 17)
+                        ^ right_rot(words[i - 2], 19)
+                        ^ (words[i - 2] >> 10);
+                    words.push(
+                        words[i - 16]
+                            .wrapping_add(s0)
+                            .wrapping_add(words[i - 7])
+                            .wrapping_add(s1),
+                    );
+                }
+
+                // Init values
+                let mut a = self.0;
+                let mut b = self.1;
+                let mut c = self.2;
+                let mut d = self.3;
+                let mut e = self.4;
+                let mut f = self.5;
+                let mut g = self.6;
+                let mut h = self.7;
+
+                for i in 0..64 {
+                    let s1 = right_rot(e, 6) ^ right_rot(e, 11) ^ right_rot(e, 25);
+                    let ch = (e & f) ^ ((!e) & g);
+                    let temp1 = h
+                        .wrapping_add(s1)
+                        .wrapping_add(ch)
+                        .wrapping_add(SHA256Hash::K[i])
+                        .wrapping_add(words[i]);
+                    let s0 = right_rot(a, 2) ^ right_rot(a, 13) ^ right_rot(a, 22);
+                    let maj = (a & b) ^ (a & c) ^ (b & c);
+                    let temp2 = s0.wrapping_add(maj);
+
+                    h = g;
+                    g = f;
+                    f = e;
+                    e = d.wrapping_add(temp1);
+                    d = c;
+                    c = b;
+                    b = a;
+                    a = temp1.wrapping_add(temp2);
+                }
+
+                SHA256Hash(a, b, c, d, e, f, g, h)
+            }
         }
 
         impl std::ops::Add for SHA256Hash {
@@ -259,84 +320,6 @@ pub mod hash {
                     self.7.wrapping_add(rhs.7),
                 )
             }
-        }
-
-        pub fn sha256(message: &[u8]) -> Vec<u8> {
-            // Message length in bits
-            let ml: u64 = TryInto::<u64>::try_into(message.len()).unwrap() * 8;
-            let mut message = message.to_vec();
-
-            // Pre-processing
-            message.push(0x80);
-
-            // message len needs to be multiple of (512-64)/8 = 56
-            message = pad_mult(message, 64, 8);
-            message.append(&mut u64::to_be_bytes(ml).to_vec());
-
-            // chunk into 512/8= 64 byte chunks
-            let chunks = message.chunks(64);
-
-            let hash = chunks.fold(SHA256Hash::new(), |acc, x| process_chunks(&acc, x) + acc);
-
-            hash.to_vec()
-        }
-
-        fn process_chunks(hash: &SHA256Hash, chunk: &[u8]) -> SHA256Hash {
-            // Convert 64 byte chunks to 16 32-bit big-endian words
-            let mut words: Vec<u32> = chunk
-                .chunks(4)
-                .map(|x| u32::from_be_bytes(x.try_into().unwrap()))
-                .collect();
-
-            // Creates 64 long vec
-            for i in 16..64 {
-                let s0 = right_rot(words[i - 15], 7)
-                    ^ right_rot(words[i - 15], 18)
-                    ^ (words[i - 15] >> 3);
-                let s1 = right_rot(words[i - 2], 17)
-                    ^ right_rot(words[i - 2], 19)
-                    ^ (words[i - 2] >> 10);
-                words.push(
-                    words[i - 16]
-                        .wrapping_add(s0)
-                        .wrapping_add(words[i - 7])
-                        .wrapping_add(s1),
-                );
-            }
-
-            // Init values
-            let mut a = hash.0;
-            let mut b = hash.1;
-            let mut c = hash.2;
-            let mut d = hash.3;
-            let mut e = hash.4;
-            let mut f = hash.5;
-            let mut g = hash.6;
-            let mut h = hash.7;
-
-            for i in 0..64 {
-                let s1 = right_rot(e, 6) ^ right_rot(e, 11) ^ right_rot(e, 25);
-                let ch = (e & f) ^ ((!e) & g);
-                let temp1 = h
-                    .wrapping_add(s1)
-                    .wrapping_add(ch)
-                    .wrapping_add(SHA256Hash::K[i])
-                    .wrapping_add(words[i]);
-                let s0 = right_rot(a, 2) ^ right_rot(a, 13) ^ right_rot(a, 22);
-                let maj = (a & b) ^ (a & c) ^ (b & c);
-                let temp2 = s0.wrapping_add(maj);
-
-                h = g;
-                g = f;
-                f = e;
-                e = d.wrapping_add(temp1);
-                d = c;
-                c = b;
-                b = a;
-                a = temp1.wrapping_add(temp2);
-            }
-
-            SHA256Hash(a, b, c, d, e, f, g, h)
         }
     }
 
@@ -420,7 +403,7 @@ pub mod hash {
                 0xda, 0x39, 0xa3, 0xee, 0x5e, 0x6b, 0x4b, 0x0d, 0x32, 0x55, 0xbf, 0xef, 0x95, 0x60,
                 0x18, 0x90, 0xaf, 0xd8, 0x07, 0x09,
             ];
-            assert_eq!(sha1::sha1(key), result)
+            assert_eq!(hash(sha1::SHA1Hash::new(), key), result)
         }
 
         #[test]
@@ -430,7 +413,7 @@ pub mod hash {
                 0x59, 0x07, 0x84, 0x5c, 0xeb, 0x72, 0x05, 0x8d, 0xa5, 0x36, 0xa6, 0x23, 0xa0, 0x83,
                 0x8c, 0x5c, 0x1b, 0x92, 0x57, 0xe0,
             ];
-            assert_eq!(sha1::sha1(key), result)
+            assert_eq!(hash(sha1::SHA1Hash::new(), key), result)
         }
 
         #[test]
@@ -440,7 +423,7 @@ pub mod hash {
                 0xd2, 0x6c, 0xf5, 0xf8, 0x56, 0xae, 0xaa, 0x77, 0xa7, 0xfb, 0xaa, 0x32, 0x6f, 0x7d,
                 0x31, 0x2c, 0xba, 0xb5, 0xaa, 0x4b,
             ];
-            assert_eq!(sha1::sha1(key), result)
+            assert_eq!(hash(sha1::SHA1Hash::new(), key), result)
         }
 
         #[test]
@@ -451,7 +434,7 @@ pub mod hash {
                 0xb9, 0x24, 0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95, 0x99, 0x1b,
                 0x78, 0x52, 0xb8, 0x55,
             ];
-            assert_eq!(sha2::sha256(key), result)
+            assert_eq!(hash(sha2::SHA256Hash::new(), key), result)
         }
 
         #[test]
@@ -462,7 +445,7 @@ pub mod hash {
                 0xb3, 0x42, 0x65, 0x39, 0xf9, 0x83, 0x8e, 0xd2, 0x1f, 0x70, 0x75, 0x22, 0x3f, 0x90,
                 0xbc, 0x3a, 0xd2, 0x2d,
             ];
-            assert_eq!(sha2::sha256(key), result)
+            assert_eq!(hash(sha2::SHA256Hash::new(), key), result)
         }
 
         #[test]
@@ -473,21 +456,21 @@ pub mod hash {
                 0x42, 0x16, 0xdf, 0x21, 0x03, 0x14, 0x6b, 0x18, 0xe4, 0xce, 0xe6, 0x10, 0xac, 0x97,
                 0x24, 0x6c, 0x0b, 0x0b,
             ];
-            assert_eq!(sha2::sha256(key), result)
+            assert_eq!(hash(sha2::SHA256Hash::new(), key), result)
         }
     }
 }
 
 pub mod hmac {
-    use crate::{hash, CodeOptions};
+    use crate::CodeOptions;
     const IPAD: u8 = 0x36;
     const OPAD: u8 = 0x5c;
 
     pub fn generate(key: &[u8], message: &[u8], options: CodeOptions) -> Vec<u8> {
-        let block_size = 64;
-        // let output_size = 40;
+        let block_size = 64; // Block size in bytes
+                             // let output_size = 40; // Always truncated
 
-        let block_sized_key = compute_block_sized_key(key, block_size);
+        let block_sized_key = compute_block_sized_key(key, options, block_size);
 
         let input_key_pad: Vec<u8> = block_sized_key.iter().map(|x| x ^ IPAD).collect();
         let output_key_pad: Vec<u8> = block_sized_key.iter().map(|x| x ^ OPAD).collect();
@@ -495,12 +478,12 @@ pub mod hmac {
         let digest: Vec<u8> = options
             .hash
             .digest(&concat(input_key_pad, message.to_vec()));
-        hash::sha1::sha1(&concat(output_key_pad, digest))
+        options.hash.digest(&concat(output_key_pad, digest))
     }
 
-    fn compute_block_sized_key(key: &[u8], block_size: usize) -> Vec<u8> {
+    fn compute_block_sized_key(key: &[u8], options: CodeOptions, block_size: usize) -> Vec<u8> {
         if key.len() > block_size {
-            hash::sha1::sha1(&key)
+            options.hash.digest(&key.to_vec())
         } else if key.len() < block_size {
             pad(key, block_size)
         } else {
