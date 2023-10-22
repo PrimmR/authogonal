@@ -3,5 +3,6 @@
 members = [
     "totp",
     "hash",
+    "sort",
 ]
 resolver = "2"
