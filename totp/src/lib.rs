@@ -57,8 +57,6 @@ impl std::default::Default for CodeOptions {
     }
 }
 
-
-
 pub mod hmac {
     use crate::CodeOptions;
     const IPAD: u8 = 0x36;
@@ -66,7 +64,7 @@ pub mod hmac {
 
     pub fn generate(key: &[u8], message: &[u8], options: CodeOptions) -> Vec<u8> {
         let block_size = options.hash.get_block_size(); // Block size in bytes
-                             // let output_size = 40; // Always truncated
+                                                        // let output_size = 40; // Always truncated
 
         let block_sized_key = compute_block_sized_key(key, options, block_size);
 
@@ -275,53 +273,76 @@ pub mod otp {
     }
 }
 
-pub mod display {
+pub mod ui {
     use chrono::Timelike;
     use chrono::Utc;
 
     use std::sync::mpsc;
     use std::sync::mpsc::Receiver;
     // use std::sync::mpsc::TryRecvError;
-    use std::io;
     use std::thread;
     use std::time::Duration;
 
     use crate::otp::generate;
-
     use crate::Key;
 
+    use eframe::{egui, CreationContext};
+    use eframe::egui::Context;
+
+    #[derive(Debug)]
     pub enum OTPMessage {
         Code(u32),
     }
 
-    pub fn display_key(key: &Key) {
-        let otp_channel = spawn_thread(key);
+    // Data retained to be displayed
+    struct DisplayKey {
+        code: u32,
+        length: u8,
+        name: String,
+        thread: Receiver<OTPMessage>,
+    }
 
-        loop {
-            match otp_channel.recv().unwrap() {
-                OTPMessage::Code(c) => {
-                    let d: usize = key.options.length.into();
-                    println!("{:0>d$}", c, d = d)
-                }
+    impl DisplayKey {
+        fn new(name: String, length: u8, thread: Receiver<OTPMessage>) -> Self {
+            Self {
+                code: 0, // Code updated on thread startup
+                length,
+                name,
+                thread,
             }
+        }
+
+        // Converts code to string & gives leading 0s
+        fn generate_code_string(&self) -> String {
+            let d: usize = self.length.into();
+            format!("{:0>d$}", self.code, d = d)
         }
     }
 
-    fn spawn_thread(key: &Key) -> Receiver<OTPMessage> {
+    // 1 thread for each code to generate
+    fn spawn_thread(ctx: &Context, key: &Key) -> Receiver<OTPMessage> {
         let (tx, rx) = mpsc::channel::<OTPMessage>();
         let key_clone = key.clone();
 
+        // Generates initial code
         let code = generate(&key_clone);
         tx.send(OTPMessage::Code(code)).unwrap();
+
+        // CTX cheap to clone
+        let ctx = ctx.clone();
 
         thread::spawn(move || loop {
             let now = Utc::now();
 
+            // Allow for different periods   sleep until?
+            // Every 'x' seconds, generates new code and sends it to the App thread
             if now.second() == 0 || now.second() == 30 {
                 let code = generate(&key_clone);
 
-                tx.send(OTPMessage::Code(code)).unwrap();
-
+                if let Ok(_) = tx.send(OTPMessage::Code(code)) {
+                    ctx.request_repaint(); // Only called on updates, to prevent CPU overhead
+                                           // println!("Sent {}", code)
+                }
                 thread::sleep(Duration::from_secs(2));
             } else {
                 thread::sleep(Duration::from_millis(50));
@@ -330,23 +351,70 @@ pub mod display {
         rx
     }
 
-    pub fn display_choice(keys: &Vec<Key>) -> &Key {
-        loop {
-            let listing = keys
-                .iter()
-                .map(|k| format!("{}\n", k.name))
-                .collect::<String>();
-            println!("Codes:\n{}", listing);
+    // Create App instance & run
+    pub fn gui(keys: Vec<Key>) -> Result<(), eframe::Error> {
+        let options = eframe::NativeOptions {
+            initial_window_size: Some(egui::vec2(320., 240.)),
+            resizable: false,
+            centered: true,
+            ..Default::default()
+        };
+        eframe::run_native(
+            "TOTP",
+            options,
+            Box::new(|cc| Box::<App>::new(App::new(cc, keys))),
+        )
+    }
 
-            let mut buffer = String::new();
-            io::stdin().read_line(&mut buffer).unwrap();
-            let n = buffer.trim();
+    struct App {
+        keys: Vec<DisplayKey>, // Vec of key data to display
+    }
 
-            if let Some(k) = keys.iter().find(|k| k.name == n) {
-                return k;
-            } else {
-                println!("\nPlease input a valid name\n")
+    impl eframe::App for App {
+        // Called on interaction / new code
+        fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+            self.update_codes();
+            self.draw(&ctx);
+        }
+    }
+
+    impl App {
+        // Takes necessary data from Keys and converts into DisplayKey
+        fn new(cc: &CreationContext, keys: Vec<Key>) -> Self {
+            let key = Key::new(
+                String::from("Primm"),
+                String::from("Text"),
+                Default::default(),
+            );
+            let thread = spawn_thread(&cc.egui_ctx, &key);
+
+            let dkey = DisplayKey::new(key.name, key.options.length, thread);
+            Self { keys: vec![dkey] }
+        }
+
+        // When thread updates key, write to App state
+        fn update_codes(&mut self) {
+            for key in &mut self.keys {
+                if let Ok(v) = key.thread.try_recv() {
+                    // println!("received {:?}", v);
+                    match v {
+                        OTPMessage::Code(c) => {
+                            key.code = c;
+                        }
+                    }
+                }
             }
+        }
+
+        // GUI elements
+        fn draw(&mut self, ctx: &egui::Context) {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    for key in &self.keys {
+                        ui.heading(key.generate_code_string());
+                    }
+                });
+            });
         }
     }
 }

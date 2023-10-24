@@ -1,9 +1,7 @@
 extern crate totp;
 use totp::*;
 
-fn main() {
+fn main() -> Result<(), eframe::Error>{
     let keys = file::load();
-
-    let selected = display::display_choice(&keys);
-    display::display_key(selected);
+    ui::gui(keys)
 }
