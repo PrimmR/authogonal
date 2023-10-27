@@ -28,7 +28,7 @@ pub trait Hash {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HashFn {
     SHA1,
     SHA256,

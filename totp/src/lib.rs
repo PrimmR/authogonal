@@ -1,10 +1,12 @@
 extern crate chrono;
 extern crate serde;
 
+use std::default;
+
 use serde::{Deserialize, Serialize};
 
 // Structs used for the whole library
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Key {
     secret: String,
     name: String,
@@ -19,6 +21,21 @@ impl Key {
             options,
         }
     }
+
+    pub fn increment(&mut self) {
+        file::save_increment(&self);
+        self.options.method.increment_counter();
+    }
+}
+
+impl default::Default for Key {
+    fn default() -> Self {
+        Self {
+            secret: String::from(""),
+            name: String::from(""),
+            options: CodeOptions::default(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -29,7 +46,7 @@ enum HashFnDef {
     SHA512,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CodeOptions {
     method: otp::OTPMethod,
     #[serde(with = "HashFnDef")]
@@ -149,10 +166,19 @@ pub mod otp {
 
     use serde::{Deserialize, Serialize};
 
-    #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+    #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
     pub enum OTPMethod {
         TOTP,
         HOTP(u64),
+    }
+
+    impl OTPMethod {
+        pub fn increment_counter(&mut self) {
+            match self {
+                Self::HOTP(ref mut c) => *c += 1,
+                Self::TOTP => (),
+            }
+        }
     }
 
     impl Key {
@@ -276,85 +302,188 @@ pub mod otp {
 pub mod ui {
     use chrono::Timelike;
     use chrono::Utc;
+    use std::collections::HashMap;
 
     use std::sync::mpsc;
-    use std::sync::mpsc::Receiver;
-    // use std::sync::mpsc::TryRecvError;
+    use std::sync::mpsc::{Receiver, Sender};
     use std::thread;
     use std::time::Duration;
 
+    use crate::file;
     use crate::otp::generate;
+    use crate::otp::OTPMethod;
     use crate::Key;
 
     use eframe::{egui, CreationContext};
-    use eframe::egui::Context;
+
+    use sort::merge_sort;
 
     #[derive(Debug)]
-    pub enum OTPMessage {
+    pub enum OTPMessageOut {
         Code(u32),
     }
 
+    #[derive(Debug)]
+    pub enum OTPMessageIn {
+        Increment,
+    }
+
     // Data retained to be displayed
+    #[derive(Clone)]
     struct DisplayKey {
+        id: usize,
         code: u32,
         length: u8,
         name: String,
-        thread: Receiver<OTPMessage>,
+        sender: Option<Sender<OTPMessageIn>>,
     }
 
     impl DisplayKey {
-        fn new(name: String, length: u8, thread: Receiver<OTPMessage>) -> Self {
+        fn new(id: usize, name: String, length: u8, sender: Option<Sender<OTPMessageIn>>) -> Self {
             Self {
+                id,
                 code: 0, // Code updated on thread startup
                 length,
                 name,
-                thread,
+                sender,
             }
         }
 
         // Converts code to string & gives leading 0s
         fn generate_code_string(&self) -> String {
             let d: usize = self.length.into();
-            format!("{:0>d$}", self.code, d = d)
+            let mut code = format!("{:0>d$}", self.code, d = d);
+            // Insert space in centre
+            if code.len() % 2 == 0 {
+                code.insert(code.len() / 2, ' ')
+            }
+            code
         }
     }
 
+    #[derive(PartialEq)]
+    enum SortBy {
+        Date, // Oldest one added will have lowest id
+        Name,
+    }
+
+    impl Default for SortBy {
+        fn default() -> Self {
+            Self::Date
+        }
+    }
+
+    #[derive(PartialEq)]
+    enum Tab {
+        Main,
+        Add,
+        Options,
+    }
+
+    #[derive(Default)]
+    struct AppOptions {
+        sort: SortBy,
+    }
+
     // 1 thread for each code to generate
-    fn spawn_thread(ctx: &Context, key: &Key) -> Receiver<OTPMessage> {
-        let (tx, rx) = mpsc::channel::<OTPMessage>();
-        let key_clone = key.clone();
+    fn spawn_thread(
+        ctx: &egui::Context,
+        key: &Key,
+    ) -> (Receiver<OTPMessageOut>, Option<Sender<OTPMessageIn>>) {
+        // Channel for sending codes out
+        let (tx_out, rx_out) = mpsc::channel::<OTPMessageOut>();
+        // Channel for receiving updates from GUI (only for incrementing counter)
+        let (tx_in, rx_in) = if let OTPMethod::HOTP(_) = key.options.method {
+            let (t, r) = mpsc::channel::<OTPMessageIn>();
+            (Some(t), Some(r))
+        } else {
+            (None, None)
+        };
+
+        let mut key_clone = key.clone();
 
         // Generates initial code
         let code = generate(&key_clone);
-        tx.send(OTPMessage::Code(code)).unwrap();
+        tx_out.send(OTPMessageOut::Code(code)).unwrap();
 
         // CTX cheap to clone
         let ctx = ctx.clone();
 
-        thread::spawn(move || loop {
-            let now = Utc::now();
+        match key.options.method {
+            OTPMethod::TOTP => {
+                thread::spawn(move || loop {
+                    let now = Utc::now();
 
-            // Allow for different periods   sleep until?
-            // Every 'x' seconds, generates new code and sends it to the App thread
-            if now.second() == 0 || now.second() == 30 {
-                let code = generate(&key_clone);
+                    // Allow for different periods   sleep until?
+                    // Every 'x' seconds, generates new code and sends it to the App thread
+                    if now.second() == 0 || now.second() == 30 {
+                        let code = generate(&key_clone);
 
-                if let Ok(_) = tx.send(OTPMessage::Code(code)) {
-                    ctx.request_repaint(); // Only called on updates, to prevent CPU overhead
-                                           // println!("Sent {}", code)
-                }
-                thread::sleep(Duration::from_secs(2));
-            } else {
-                thread::sleep(Duration::from_millis(50));
+                        if let Ok(_) = tx_out.send(OTPMessageOut::Code(code)) {
+                            ctx.request_repaint(); // Only called on updates, to prevent CPU overhead
+                                                   // println!("Sent {}", code)
+                        }
+                        thread::sleep(Duration::from_secs(2));
+                    } else {
+                        thread::sleep(Duration::from_millis(50));
+                    }
+                });
             }
-        });
-        rx
+            OTPMethod::HOTP(_) => {
+                thread::spawn(move || loop {
+                    if let Some(r) = &rx_in {
+                        if let Ok(r) = r.recv() {
+                            match r {
+                                OTPMessageIn::Increment => {
+                                    key_clone.increment();
+                                    let code = generate(&key_clone);
+                                    if let Ok(_) = tx_out.send(OTPMessageOut::Code(code)) {
+                                        ctx.request_repaint();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        (rx_out, tx_in)
+    }
+
+    fn generate_display_keys(
+        ctx: &egui::Context,
+        keys: Vec<Key>,
+        sort: &SortBy,
+    ) -> (Vec<DisplayKey>, HashMap<usize, Receiver<OTPMessageOut>>) {
+        let mut i = 0;
+        let mut display_keys = Vec::new();
+        let mut receivers = HashMap::new();
+
+        for key in keys {
+            i += 1;
+
+            let (receive, send) = spawn_thread(&ctx, &key);
+
+            display_keys.push(DisplayKey::new(
+                i,
+                (key.name).to_string(),
+                key.options.length,
+                send,
+            ));
+            receivers.insert(i, receive);
+        }
+
+        let display_keys = match sort {
+            SortBy::Date => merge_sort(&display_keys, |v| v.id),
+            SortBy::Name => merge_sort(&display_keys, |v| v.name.clone()),
+        };
+        (display_keys, receivers)
     }
 
     // Create App instance & run
     pub fn gui(keys: Vec<Key>) -> Result<(), eframe::Error> {
         let options = eframe::NativeOptions {
-            initial_window_size: Some(egui::vec2(320., 240.)),
+            initial_window_size: Some(egui::vec2(320., 342.)),
             resizable: false,
             centered: true,
             ..Default::default()
@@ -367,38 +496,47 @@ pub mod ui {
     }
 
     struct App {
-        keys: Vec<DisplayKey>, // Vec of key data to display
+        keys: Vec<DisplayKey>,
+        receivers: HashMap<usize, Receiver<OTPMessageOut>>, // Threads separate to keys as cannot be cloned - 1-1 relationship between id and thread
+        tab: Tab,
+        add_key: Key,
+        options: AppOptions,
     }
 
     impl eframe::App for App {
         // Called on interaction / new code
         fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
             self.update_codes();
-            self.draw(&ctx);
+            self.draw_menu(&ctx);
+            match self.tab {
+                Tab::Main => self.draw_main(&ctx),
+                Tab::Add => self.draw_add(&ctx),
+                Tab::Options => self.draw_options(&ctx),
+            }
         }
     }
 
     impl App {
         // Takes necessary data from Keys and converts into DisplayKey
         fn new(cc: &CreationContext, keys: Vec<Key>) -> Self {
-            let key = Key::new(
-                String::from("Primm"),
-                String::from("Text"),
-                Default::default(),
-            );
-            let thread = spawn_thread(&cc.egui_ctx, &key);
-
-            let dkey = DisplayKey::new(key.name, key.options.length, thread);
-            Self { keys: vec![dkey] }
+            let (display_keys, receivers) =
+                generate_display_keys(&cc.egui_ctx, keys, &Default::default());
+            Self {
+                keys: display_keys,
+                receivers,
+                options: Default::default(),
+                tab: Tab::Main,
+                add_key: Key::default(),
+            }
         }
 
         // When thread updates key, write to App state
         fn update_codes(&mut self) {
             for key in &mut self.keys {
-                if let Ok(v) = key.thread.try_recv() {
+                if let Ok(v) = self.receivers[&key.id].try_recv() {
                     // println!("received {:?}", v);
                     match v {
-                        OTPMessage::Code(c) => {
+                        OTPMessageOut::Code(c) => {
                             key.code = c;
                         }
                     }
@@ -407,13 +545,115 @@ pub mod ui {
         }
 
         // GUI elements
-        fn draw(&mut self, ctx: &egui::Context) {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        fn draw_menu(&mut self, ctx: &egui::Context) {
+            egui::TopBottomPanel::top("Menu").show(ctx, |ui| {
                 ui.horizontal(|ui| {
+                    // Make into macro?
+                    if ui.selectable_label(self.tab == Tab::Main, "Main").clicked() {
+                        self.tab = Tab::Main;
+                    }
+                    if ui.selectable_label(self.tab == Tab::Add, "Add").clicked() {
+                        self.tab = Tab::Add;
+                    }
+                    if ui
+                        .selectable_label(self.tab == Tab::Options, "Options")
+                        .clicked()
+                    {
+                        self.tab = Tab::Options;
+                    }
+                })
+            });
+        }
+
+        fn draw_main(&mut self, ctx: &egui::Context) {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
                     for key in &self.keys {
-                        ui.heading(key.generate_code_string());
+                        ui.push_id(key.id, |ui| {
+                            let response = ui
+                                .vertical(|ui| {
+                                    ui.label(egui::RichText::new(&*key.name).size(20.));
+                                    ui.label(
+                                        egui::RichText::new(key.generate_code_string())
+                                            .size(30.)
+                                            .strong(),
+                                    );
+                                    ui.separator();
+                                })
+                                .response;
+
+                            if let Some(s) = &key.sender {
+                                if response.interact(egui::Sense::click()).clicked() {
+                                    s.send(OTPMessageIn::Increment).unwrap();
+                                }
+                            }
+                        });
                     }
                 });
+            });
+        }
+
+        fn draw_add(&mut self, ctx: &egui::Context) {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Secret");
+                    ui.text_edit_singleline(&mut self.add_key.secret);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Name ");
+                    ui.text_edit_singleline(&mut self.add_key.name);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Method");
+                    ui.radio_value(&mut self.add_key.options.method, OTPMethod::TOTP, "TOTP");
+                    ui.radio_value(&mut self.add_key.options.method, OTPMethod::HOTP(0), "HOTP");
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Length  ");
+                    ui.radio_value(&mut self.add_key.options.length, 4, "4");
+                    ui.radio_value(&mut self.add_key.options.length, 5, "5");
+                    ui.radio_value(&mut self.add_key.options.length, 6, "6");
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Hash Fn ");
+                    ui.radio_value(&mut self.add_key.options.hash, hash::HashFn::SHA1, "SHA1");
+                    ui.radio_value(
+                        &mut self.add_key.options.hash,
+                        hash::HashFn::SHA256,
+                        "SHA256",
+                    );
+                    ui.radio_value(
+                        &mut self.add_key.options.hash,
+                        hash::HashFn::SHA512,
+                        "SHA512",
+                    );
+                });
+                ui.separator();
+                if ui.button("Add").clicked() {
+                    file::add(&self.add_key);
+                    (self.keys, self.receivers) =
+                        generate_display_keys(&ctx, file::load(), &self.options.sort);
+                    self.add_key = Default::default();
+                    self.tab = Tab::Main;
+                }
+            });
+        }
+
+        fn draw_options(&mut self, ctx: &egui::Context) {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Sort");
+                    if ui
+                        .radio_value(&mut self.options.sort, SortBy::Date, "Date Added")
+                        .clicked()
+                        || ui
+                            .radio_value(&mut self.options.sort, SortBy::Name, "Name")
+                            .clicked()
+                    {
+                        (self.keys, self.receivers) =
+                            generate_display_keys(&ctx, file::load(), &self.options.sort);
+                    }
+                })
             });
         }
     }
@@ -423,6 +663,12 @@ pub mod file {
     use crate::Key;
     use std::fs::File;
     use std::path::Path;
+
+    pub fn add(key: &Key) {
+        let mut load = load();
+        load.push(key.clone());
+        save(&load);
+    }
 
     pub fn save(keys: &Vec<Key>) {
         let path = Path::new("keys.txt");
@@ -436,6 +682,15 @@ pub mod file {
         } else {
             save(&Vec::new());
             Vec::new()
+        }
+    }
+
+    pub fn save_increment(key: &Key) {
+        let mut keys = load();
+        // Replace with own search?
+        if let Ok(i) = keys.binary_search(key) {
+            keys[i].options.method.increment_counter();
+            save(&keys)
         }
     }
 }

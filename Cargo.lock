@@ -2207,6 +2207,7 @@ dependencies = [
  "hash",
  "serde",
  "serde_json",
+ "sort",
 ]
 
 [[package]]
