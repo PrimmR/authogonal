@@ -687,9 +687,8 @@ pub mod file {
 
     pub fn save_increment(key: &Key) {
         let mut keys = load();
-        // Replace with own search?
-        if let Ok(i) = keys.binary_search(key) {
-            keys[i].options.method.increment_counter();
+        if let Some(k) = keys.iter_mut().find(|k| *k == key) {
+            (*k).options.method.increment_counter();
             save(&keys)
         }
     }
