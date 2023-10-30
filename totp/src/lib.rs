@@ -302,6 +302,8 @@ pub mod otp {
 pub mod ui {
     use chrono::Timelike;
     use chrono::Utc;
+    use eframe::egui::RichText;
+    use eframe::epaint::Color32;
     use std::collections::HashMap;
 
     use std::sync::mpsc;
@@ -350,11 +352,11 @@ pub mod ui {
         }
 
         // Converts code to string & gives leading 0s
-        fn generate_code_string(&self) -> String {
+        fn generate_code_string(&self, spacer: bool) -> String {
             let d: usize = self.length.into();
             let mut code = format!("{:0>d$}", self.code, d = d);
             // Insert space in centre
-            if code.len() % 2 == 0 {
+            if spacer && code.len() % 2 == 0 {
                 code.insert(code.len() / 2, ' ')
             }
             code
@@ -380,9 +382,28 @@ pub mod ui {
         Options,
     }
 
-    #[derive(Default)]
+    impl Tab {
+        fn to_str(&self) -> String {
+            match self {
+                Self::Main => String::from("Main"),
+                Self::Add => String::from("Add"),
+                Self::Options => String::from("Options"),
+            }
+        }
+    }
+
     struct AppOptions {
         sort: SortBy,
+        spacer: bool,
+    }
+
+    impl Default for AppOptions {
+        fn default() -> Self {
+            Self {
+                sort: Default::default(),
+                spacer: true,
+            }
+        }
     }
 
     // 1 thread for each code to generate
@@ -501,6 +522,8 @@ pub mod ui {
         tab: Tab,
         add_key: Key,
         options: AppOptions,
+        add_err: String,
+        request_key_update: bool,
     }
 
     impl eframe::App for App {
@@ -512,6 +535,12 @@ pub mod ui {
                 Tab::Main => self.draw_main(&ctx),
                 Tab::Add => self.draw_add(&ctx),
                 Tab::Options => self.draw_options(&ctx),
+            }
+
+            // As keys can't be updated when being iterated through
+            if self.request_key_update {
+                self.request_key_update = false;
+                self.refresh_keys(ctx)
             }
         }
     }
@@ -527,6 +556,8 @@ pub mod ui {
                 options: Default::default(),
                 tab: Tab::Main,
                 add_key: Key::default(),
+                add_err: String::new(),
+                request_key_update: false,
             }
         }
 
@@ -544,23 +575,28 @@ pub mod ui {
             }
         }
 
+        fn refresh_keys(&mut self, ctx: &egui::Context) {
+            (self.keys, self.receivers) =
+                generate_display_keys(&ctx, file::load(), &self.options.sort);
+        }
+
         // GUI elements
         fn draw_menu(&mut self, ctx: &egui::Context) {
+            // Creates clickable labels for each tab that switches window
+            macro_rules! menu_tabs {
+                ($w:expr, $($x:expr), *) => {
+                    let ui = $w;
+                    $(
+                        if ui.selectable_label(self.tab == $x, $x.to_str()).clicked() {
+                            self.tab = $x;
+                        }
+                    )*
+                }
+            }
+
             egui::TopBottomPanel::top("Menu").show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    // Make into macro?
-                    if ui.selectable_label(self.tab == Tab::Main, "Main").clicked() {
-                        self.tab = Tab::Main;
-                    }
-                    if ui.selectable_label(self.tab == Tab::Add, "Add").clicked() {
-                        self.tab = Tab::Add;
-                    }
-                    if ui
-                        .selectable_label(self.tab == Tab::Options, "Options")
-                        .clicked()
-                    {
-                        self.tab = Tab::Options;
-                    }
+                    menu_tabs!(ui, Tab::Main, Tab::Add, Tab::Options);
                 })
             });
         }
@@ -574,9 +610,11 @@ pub mod ui {
                                 .vertical(|ui| {
                                     ui.label(egui::RichText::new(&*key.name).size(20.));
                                     ui.label(
-                                        egui::RichText::new(key.generate_code_string())
-                                            .size(30.)
-                                            .strong(),
+                                        egui::RichText::new(
+                                            key.generate_code_string(self.options.spacer),
+                                        )
+                                        .size(30.)
+                                        .strong(),
                                     );
                                     ui.separator();
                                 })
@@ -587,6 +625,27 @@ pub mod ui {
                                     s.send(OTPMessageIn::Increment).unwrap();
                                 }
                             }
+
+                            let popup_id = ui.make_persistent_id("my_unique_id");
+
+                            if response.interact(egui::Sense::click()).secondary_clicked() {
+                                ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                            }
+                            let below = egui::AboveOrBelow::Below;
+
+                            egui::popup::popup_above_or_below_widget(
+                                ui,
+                                popup_id,
+                                &response,
+                                below,
+                                |ui| {
+                                    ui.set_max_width(20.0); // if you want to control the size
+                                    if ui.button("Delete").clicked() {
+                                        file::remove(&key.name);
+                                        self.request_key_update = true;
+                                    }
+                                },
+                            );
                         });
                     }
                 });
@@ -628,13 +687,18 @@ pub mod ui {
                         "SHA512",
                     );
                 });
+                ui.label(RichText::new(&self.add_err).color(Color32::RED));
                 ui.separator();
                 if ui.button("Add").clicked() {
-                    file::add(&self.add_key);
-                    (self.keys, self.receivers) =
-                        generate_display_keys(&ctx, file::load(), &self.options.sort);
-                    self.add_key = Default::default();
-                    self.tab = Tab::Main;
+                    // If error: display, else: refresh all fields
+                    if let Err(e) = file::add(&self.add_key) {
+                        self.add_err = e;
+                    } else {
+                        self.refresh_keys(ctx);
+                        self.add_key = Default::default();
+                        self.tab = Tab::Main;
+                        self.add_err = String::new();
+                    }
                 }
             });
         }
@@ -653,7 +717,12 @@ pub mod ui {
                         (self.keys, self.receivers) =
                             generate_display_keys(&ctx, file::load(), &self.options.sort);
                     }
-                })
+                });
+                ui.horizontal(|ui| {
+                    let selected = &mut self.options.spacer;
+                    ui.label("Spacer");
+                    ui.toggle_value(selected, if *selected { "Enabled" } else { "Disabled" });
+                });
             });
         }
     }
@@ -664,13 +733,32 @@ pub mod file {
     use std::fs::File;
     use std::path::Path;
 
-    pub fn add(key: &Key) {
+    // Fails if key with name already exists
+    pub fn add(key: &Key) -> Result<(), String> {
         let mut load = load();
-        load.push(key.clone());
+
+        // Validation
+        if let None = load.iter_mut().find(|k| *k.name == key.name) {
+            load.push(key.clone());
+            save(&load);
+            Ok(())
+        } else {
+            Err(String::from("A key with that name already exists"))
+        }
+    }
+
+    // Removes key with name
+    pub fn remove(key_name: &String) {
+        let mut load = load();
+        load.remove(
+            load.iter()
+                .position(|k| &k.name == key_name)
+                .expect("Key not found"),
+        );
         save(&load);
     }
 
-    pub fn save(keys: &Vec<Key>) {
+    fn save(keys: &Vec<Key>) {
         let path = Path::new("keys.txt");
         let file = File::create(path).unwrap();
         serde_json::to_writer_pretty(file, &keys).unwrap();
