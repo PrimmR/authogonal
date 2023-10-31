@@ -11,15 +11,73 @@ pub struct Key {
     secret: String,
     name: String,
     options: CodeOptions,
+    time: i64,
 }
 
 impl Key {
-    pub fn new(secret: String, name: String, options: CodeOptions) -> Self {
+    pub fn new(secret: String, name: String, options: CodeOptions, time: i64) -> Self {
         Self {
             secret,
             name,
             options,
+            time,
         }
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        // Make sure name not empty
+        if self.name.len() == 0 {
+            return Err(String::from("Name cannot be empty"));
+        }
+
+        let secret = &self.secret;
+
+        // Make sure secret at least 2 characters
+        if secret.len() <= 1 {
+            return Err(String::from("Invalid secret length"));
+        }
+
+        let secret = secret.to_ascii_uppercase();
+        Self::validate_char(&secret)?;
+        Self::validate_len(&secret)?;
+
+        Ok(())
+    }
+
+    // Validate that chars in Base-32 set
+    fn validate_char(secret: &String) -> Result<(), String> {
+        let base32chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+        let upper = secret.to_ascii_uppercase();
+
+        if upper.chars().any(|c| !base32chars.contains(c)) {
+            return Err(String::from("Invalid character in secret"));
+        }
+        Ok(())
+    }
+
+    // Validate any overflow when converting to b32 just contains 0s
+    fn validate_len(secret: &String) -> Result<(), String> {
+        let base32chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+        let mut backwards = secret.chars().rev();
+        let last = backwards.next().unwrap();
+        let penultimate = backwards.next().unwrap();
+        let ending_binary = format!(
+            "{:05b}{:05b}",
+            base32chars.find(penultimate).unwrap(),
+            base32chars.find(last).unwrap()
+        );
+
+        // The right index to start the check from
+        let bit_len = secret.len() * 5;
+        let rem_i = bit_len - bit_len / 8 * 8;
+
+        let bits: Vec<char> = ending_binary.chars().collect();
+        // Len is always 10, so gives left index
+        if bits[10 - rem_i..].iter().any(|b| *b == '1') {
+            return Err(String::from("Invalid secret"));
+        }
+        Ok(())
     }
 
     pub fn increment(&mut self) {
@@ -34,6 +92,7 @@ impl default::Default for Key {
             secret: String::from(""),
             name: String::from(""),
             options: CodeOptions::default(),
+            time: 0,
         }
     }
 }
@@ -74,6 +133,66 @@ impl std::default::Default for CodeOptions {
             length: 6,
             interval: 30,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secret_validate_empty() {
+        Key::new(
+            String::from(""),
+            String::new(),
+            Default::default(),
+            Default::default(),
+        )
+        .validate()
+        .unwrap_err();
+    }
+
+    #[test]
+    fn secret_validate_non_empty() {
+        Key::new(
+            String::from("7A"),
+            String::new(),
+            Default::default(),
+            Default::default(),
+        )
+        .validate()
+        .unwrap();
+    }
+
+    #[test]
+    fn secret_validate_invalid_char() {
+        Key::validate_char(&String::from("2082")).unwrap_err();
+    }
+
+    #[test]
+    fn secret_validate_valid_char() {
+        Key::validate_char(&String::from("manonam")).unwrap();
+    }
+
+    #[test]
+    fn secret_validate_invalid_len() {
+        // 00000000_1000000
+        // ACA
+        Key::validate_len(&String::from("ACA")).unwrap_err();
+    }
+
+    #[test]
+    fn secret_validate_valid_len() {
+        // 01111100_01010000_11000110_0
+        // Primm
+        Key::validate_len(&String::from("PRIMM")).unwrap();
+    }
+
+    #[test]
+    fn secret_validate_exact_len() {
+        // 10010001_11011101_01101000_10111001_11001100
+        // Showroom
+        Key::validate_len(&String::from("SHOWROOM")).unwrap();
     }
 }
 
@@ -185,14 +304,10 @@ pub mod otp {
     }
 
     impl Key {
-        fn to_b32(&self) -> Result<Vec<u8>, char> {
+        // Validation done when keys entered
+        fn to_b32(&self) -> Vec<u8> {
             let base32chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
             let upper = self.secret.to_ascii_uppercase();
-
-            upper
-                .chars()
-                .map(|c| validate(base32chars, c))
-                .collect::<Result<(), char>>()?;
 
             let i = upper.chars().fold(String::new(), |acc, x| {
                 acc + format!("{:05b}", base32chars.find(x).unwrap()).as_str()
@@ -200,12 +315,12 @@ pub mod otp {
 
             let bytes = i.into_bytes();
 
-            Ok(bytes
+            bytes
                 .chunks(8)
                 .map(|x| {
                     u8::from_str_radix(String::from_utf8(x.to_vec()).unwrap().as_str(), 2).unwrap()
                 })
-                .collect::<Vec<u8>>())
+                .collect()
         }
     }
 
@@ -223,16 +338,8 @@ pub mod otp {
         extract
     }
 
-    pub fn validate(string: &str, character: char) -> Result<(), char> {
-        if !string.contains(character) {
-            Err(character)
-        } else {
-            Ok(())
-        }
-    }
-
     pub fn generate(key: &Key) -> u32 {
-        let b32key = key.to_b32().expect("Key contains invalid characters");
+        let b32key = key.to_b32();
 
         let now = Utc::now();
         // Timestep updates every interval seconds
@@ -283,22 +390,14 @@ pub mod otp {
 
         #[test]
         fn regular_to_b32() {
-            let key = Key::new(String::from("Primm"), String::new(), Default::default());
+            let key = Key::new(
+                String::from("Primm"),
+                String::new(),
+                Default::default(),
+                Default::default(),
+            );
             let expect = vec![0x7c, 0x50, 0xc6, 0x00];
-            assert_eq!(key.to_b32().unwrap(), expect)
-        }
-
-        #[test]
-        fn empty_to_b32() {
-            let key = Key::new(String::new(), String::new(), Default::default());
-            let expect: Vec<u8> = Vec::new();
-            assert_eq!(key.to_b32().unwrap(), expect);
-        }
-
-        #[test]
-        fn invalid_to_b32() {
-            let key = Key::new(String::from("&"), String::new(), Default::default());
-            assert_eq!(key.to_b32(), Err('&'));
+            assert_eq!(key.to_b32(), expect)
         }
     }
 }
@@ -318,6 +417,7 @@ mod thread {
     use eframe::egui;
 
     fn time_to_timestep(interval: u32) -> Duration {
+        // Milliseconds issue?
         let now_stamp: u64 = Utc::now().timestamp().try_into().unwrap();
         let interval: u64 = interval.into();
         let next_timestep_stamp = ((now_stamp / interval) + 1) * interval;
@@ -329,16 +429,11 @@ mod thread {
     pub fn spawn_thread(
         ctx: &egui::Context,
         key: &Key,
-    ) -> (Receiver<OTPMessageOut>, Option<Sender<OTPMessageIn>>) {
+    ) -> (Receiver<OTPMessageOut>, Sender<OTPMessageIn>) {
         // Channel for sending codes out
         let (tx_out, rx_out) = mpsc::channel::<OTPMessageOut>();
         // Channel for receiving updates from GUI (only for incrementing counter)
-        let (tx_in, rx_in) = if let OTPMethod::HOTP(_) = key.options.method {
-            let (t, r) = mpsc::channel::<OTPMessageIn>();
-            (Some(t), Some(r))
-        } else {
-            (None, None)
-        };
+        let (tx_in, rx_in) = mpsc::channel::<OTPMessageIn>();
 
         let mut key_clone = key.clone();
 
@@ -355,6 +450,13 @@ mod thread {
                     let wait = time_to_timestep(key_clone.options.interval);
                     thread::sleep(wait);
 
+                    // Close if recieved message while sleeping
+                    if let Ok(r) = rx_in.try_recv() {
+                        if let OTPMessageIn::Close = r {
+                            break;
+                        }
+                    }
+
                     let code = generate(&key_clone);
 
                     if let Ok(_) = tx_out.send(OTPMessageOut::Code(code)) {
@@ -364,17 +466,16 @@ mod thread {
             }
             OTPMethod::HOTP(_) => {
                 thread::spawn(move || loop {
-                    if let Some(r) = &rx_in {
-                        if let Ok(r) = r.recv() {
-                            match r {
-                                OTPMessageIn::Increment => {
-                                    key_clone.increment();
-                                    let code = generate(&key_clone);
-                                    if let Ok(_) = tx_out.send(OTPMessageOut::Code(code)) {
-                                        ctx.request_repaint();
-                                    }
+                    if let Ok(r) = rx_in.recv() {
+                        match r {
+                            OTPMessageIn::Increment => {
+                                key_clone.increment();
+                                let code = generate(&key_clone);
+                                if let Ok(_) = tx_out.send(OTPMessageOut::Code(code)) {
+                                    ctx.request_repaint();
                                 }
                             }
+                            OTPMessageIn::Close => break,
                         }
                     }
                 });
@@ -385,18 +486,17 @@ mod thread {
 }
 
 pub mod ui {
+    use chrono::Utc;
     use eframe::egui::RichText;
     use eframe::epaint::Color32;
+    use eframe::{egui, CreationContext};
     use std::collections::HashMap;
-
     use std::sync::mpsc::{Receiver, Sender};
 
     use crate::file;
     use crate::otp::OTPMethod;
     use crate::thread;
     use crate::Key;
-
-    use eframe::{egui, CreationContext};
 
     use sort::merge_sort;
 
@@ -408,26 +508,27 @@ pub mod ui {
     #[derive(Debug)]
     pub enum OTPMessageIn {
         Increment,
+        Close,
     }
 
     // Data retained to be displayed
     #[derive(Clone)]
     struct DisplayKey {
-        id: usize,
         code: u32,
         length: u8,
         name: String,
-        sender: Option<Sender<OTPMessageIn>>,
+        sender: Sender<OTPMessageIn>,
+        time: i64,
     }
 
     impl DisplayKey {
-        fn new(id: usize, name: String, length: u8, sender: Option<Sender<OTPMessageIn>>) -> Self {
+        fn new(name: String, length: u8, sender: Sender<OTPMessageIn>, time: i64) -> Self {
             Self {
-                id,
                 code: 0, // Code updated on thread startup
                 length,
                 name,
                 sender,
+                time,
             }
         }
 
@@ -490,30 +591,36 @@ pub mod ui {
         ctx: &egui::Context,
         keys: Vec<Key>,
         sort: &SortBy,
-    ) -> (Vec<DisplayKey>, HashMap<usize, Receiver<OTPMessageOut>>) {
-        let mut i = 0;
+    ) -> (Vec<DisplayKey>, HashMap<String, Receiver<OTPMessageOut>>) {
         let mut display_keys = Vec::new();
         let mut receivers = HashMap::new();
 
         for key in keys {
-            i += 1;
-
-            let (receive, send) = thread::spawn_thread(&ctx, &key);
-
-            display_keys.push(DisplayKey::new(
-                i,
-                (key.name).to_string(),
-                key.options.length,
-                send,
-            ));
-            receivers.insert(i, receive);
+            let (key, reciever) = generate_display_key(ctx, &key);
+            receivers.insert(key.name.clone(), reciever);
+            display_keys.push(key)
         }
 
-        let display_keys = match sort {
-            SortBy::Date => merge_sort(&display_keys, |v| v.id),
-            SortBy::Name => merge_sort(&display_keys, |v| v.name.clone()),
-        };
+        let display_keys = sort_keys(display_keys, sort);
         (display_keys, receivers)
+    }
+
+    fn generate_display_key(
+        ctx: &egui::Context,
+        key: &Key,
+    ) -> (DisplayKey, Receiver<OTPMessageOut>) {
+        let (receive, send) = thread::spawn_thread(&ctx, &key);
+        let display_key =
+            DisplayKey::new((key.name).to_string(), key.options.length, send, key.time);
+
+        (display_key, receive)
+    }
+
+    fn sort_keys(keys: Vec<DisplayKey>, sort: &SortBy) -> Vec<DisplayKey> {
+        match sort {
+            SortBy::Date => merge_sort(&keys, |v| v.time),
+            SortBy::Name => merge_sort(&keys, |v| v.name.to_uppercase()),
+        }
     }
 
     // Create App instance & run
@@ -533,12 +640,12 @@ pub mod ui {
 
     struct App {
         keys: Vec<DisplayKey>,
-        receivers: HashMap<usize, Receiver<OTPMessageOut>>, // Threads separate to keys as cannot be cloned - 1-1 relationship between id and thread
+        receivers: HashMap<String, Receiver<OTPMessageOut>>, // Threads separate to keys as cannot be cloned - 1-1 relationship between id and thread
         tab: Tab,
         add_key: Key,
         options: AppOptions,
         add_err: String,
-        request_key_update: bool,
+        to_delete: Option<DisplayKey>,
     }
 
     impl eframe::App for App {
@@ -552,10 +659,15 @@ pub mod ui {
                 Tab::Options => self.draw_options(&ctx),
             }
 
-            // As keys can't be updated when being iterated through
-            if self.request_key_update {
-                self.request_key_update = false;
-                self.refresh_keys(ctx)
+            // As keys can't be deleted when being iterated, they are done here
+            if let Some(k) = &self.to_delete {
+                file::remove(&k.name);
+
+                k.sender.send(OTPMessageIn::Close).unwrap();
+                self.keys
+                    .remove(self.keys.iter().position(|x| x.name == k.name).unwrap());
+                self.receivers.remove(&k.name).unwrap();
+                self.to_delete = None;
             }
         }
     }
@@ -572,14 +684,14 @@ pub mod ui {
                 tab: Tab::Main,
                 add_key: Key::default(),
                 add_err: String::new(),
-                request_key_update: false,
+                to_delete: None,
             }
         }
 
         // When thread updates key, write to App state
         fn update_codes(&mut self) {
             for key in &mut self.keys {
-                if let Ok(v) = self.receivers[&key.id].try_recv() {
+                if let Ok(v) = self.receivers[&key.name].try_recv() {
                     match v {
                         OTPMessageOut::Code(c) => {
                             key.code = c;
@@ -589,12 +701,9 @@ pub mod ui {
             }
         }
 
-        fn refresh_keys(&mut self, ctx: &egui::Context) {
-            (self.keys, self.receivers) =
-                generate_display_keys(&ctx, file::load(), &self.options.sort);
-        }
-
-        // GUI elements
+        //////////////////
+        // GUI elements //
+        //////////////////
         fn draw_menu(&mut self, ctx: &egui::Context) {
             // Creates clickable labels for each tab that switches window
             macro_rules! menu_tabs {
@@ -619,7 +728,7 @@ pub mod ui {
             egui::CentralPanel::default().show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for key in &self.keys {
-                        ui.push_id(key.id, |ui| {
+                        ui.push_id(&key.name, |ui| {
                             let response = ui
                                 .vertical(|ui| {
                                     ui.label(egui::RichText::new(&*key.name).size(20.));
@@ -634,10 +743,9 @@ pub mod ui {
                                 })
                                 .response;
 
-                            if let Some(s) = &key.sender {
-                                if response.interact(egui::Sense::click()).clicked() {
-                                    s.send(OTPMessageIn::Increment).unwrap();
-                                }
+                            // No harm if sent to TOTP
+                            if response.interact(egui::Sense::click()).clicked() {
+                                key.sender.send(OTPMessageIn::Increment).unwrap();
                             }
 
                             let popup_id = ui.make_persistent_id("my_unique_id");
@@ -645,18 +753,16 @@ pub mod ui {
                             if response.interact(egui::Sense::click()).secondary_clicked() {
                                 ui.memory_mut(|mem| mem.toggle_popup(popup_id));
                             }
-                            let below = egui::AboveOrBelow::Below;
 
                             egui::popup::popup_above_or_below_widget(
                                 ui,
                                 popup_id,
                                 &response,
-                                below,
+                                egui::AboveOrBelow::Below,
                                 |ui| {
                                     ui.set_max_width(20.0); // if you want to control the size
                                     if ui.button("Delete").clicked() {
-                                        file::remove(&key.name);
-                                        self.request_key_update = true;
+                                        self.to_delete = Some(key.clone());
                                     }
                                 },
                             );
@@ -716,7 +822,12 @@ pub mod ui {
                     if let Err(e) = file::add(&self.add_key) {
                         self.add_err = e;
                     } else {
-                        self.refresh_keys(ctx);
+                        self.add_key.time = Utc::now().timestamp();
+
+                        let (key, reciever) = generate_display_key(ctx, &self.add_key);
+                        self.receivers.insert(key.name.clone(), reciever);
+                        self.keys.push(key);
+
                         self.add_key = Default::default();
                         self.tab = Tab::Main;
                         self.add_err = String::new();
@@ -730,14 +841,13 @@ pub mod ui {
                 ui.horizontal(|ui| {
                     ui.label("Sort");
                     if ui
-                        .radio_value(&mut self.options.sort, SortBy::Date, "Date Added")
+                        .radio_value(&mut self.options.sort, SortBy::Date, "Time Added")
                         .clicked()
                         || ui
                             .radio_value(&mut self.options.sort, SortBy::Name, "Name")
                             .clicked()
                     {
-                        (self.keys, self.receivers) =
-                            generate_display_keys(&ctx, file::load(), &self.options.sort);
+                        self.keys = sort_keys(self.keys.clone(), &self.options.sort)
                     }
                 });
                 ui.horizontal(|ui| {
@@ -757,6 +867,7 @@ pub mod file {
 
     // Fails if key with name already exists
     pub fn add(key: &Key) -> Result<(), String> {
+        key.validate()?;
         let mut load = load();
 
         // Validation
