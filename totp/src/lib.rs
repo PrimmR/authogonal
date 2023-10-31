@@ -52,14 +52,16 @@ pub struct CodeOptions {
     #[serde(with = "HashFnDef")]
     hash: hash::HashFn,
     length: u8,
+    interval: u32,
 }
 
 impl CodeOptions {
-    pub fn new(method: otp::OTPMethod, hash: hash::HashFn, length: u8) -> Self {
+    pub fn new(method: otp::OTPMethod, hash: hash::HashFn, length: u8, interval: u32) -> Self {
         Self {
             method,
             hash,
             length,
+            interval,
         }
     }
 }
@@ -70,6 +72,7 @@ impl std::default::Default for CodeOptions {
             method: otp::OTPMethod::TOTP,
             hash: hash::HashFn::SHA1,
             length: 6,
+            interval: 30,
         }
     }
 }
@@ -232,7 +235,8 @@ pub mod otp {
         let b32key = key.to_b32().expect("Key contains invalid characters");
 
         let now = Utc::now();
-        let timestep = now.timestamp() / 30;
+        // Timestep updates every interval seconds
+        let timestep = now.timestamp() / key.options.interval as i64;
 
         let count: u64 = match key.options.method {
             OTPMethod::TOTP => timestep.try_into().unwrap(),
@@ -299,21 +303,97 @@ pub mod otp {
     }
 }
 
-pub mod ui {
-    use chrono::Timelike;
+mod thread {
     use chrono::Utc;
-    use eframe::egui::RichText;
-    use eframe::epaint::Color32;
-    use std::collections::HashMap;
 
     use std::sync::mpsc;
     use std::sync::mpsc::{Receiver, Sender};
     use std::thread;
     use std::time::Duration;
 
+    use crate::otp::{generate, OTPMethod};
+    use crate::ui::{OTPMessageIn, OTPMessageOut};
+    use crate::Key;
+
+    use eframe::egui;
+
+    fn time_to_timestep(interval: u32) -> Duration {
+        let now_stamp: u64 = Utc::now().timestamp().try_into().unwrap();
+        let interval: u64 = interval.into();
+        let next_timestep_stamp = ((now_stamp / interval) + 1) * interval;
+
+        Duration::from_secs(next_timestep_stamp - now_stamp)
+    }
+
+    // 1 thread for each code to generate
+    pub fn spawn_thread(
+        ctx: &egui::Context,
+        key: &Key,
+    ) -> (Receiver<OTPMessageOut>, Option<Sender<OTPMessageIn>>) {
+        // Channel for sending codes out
+        let (tx_out, rx_out) = mpsc::channel::<OTPMessageOut>();
+        // Channel for receiving updates from GUI (only for incrementing counter)
+        let (tx_in, rx_in) = if let OTPMethod::HOTP(_) = key.options.method {
+            let (t, r) = mpsc::channel::<OTPMessageIn>();
+            (Some(t), Some(r))
+        } else {
+            (None, None)
+        };
+
+        let mut key_clone = key.clone();
+
+        // Generates initial code
+        let code = generate(&key_clone);
+        tx_out.send(OTPMessageOut::Code(code)).unwrap();
+
+        // CTX cheap to clone
+        let ctx = ctx.clone();
+
+        match key.options.method {
+            OTPMethod::TOTP => {
+                thread::spawn(move || loop {
+                    let wait = time_to_timestep(key_clone.options.interval);
+                    thread::sleep(wait);
+
+                    let code = generate(&key_clone);
+
+                    if let Ok(_) = tx_out.send(OTPMessageOut::Code(code)) {
+                        ctx.request_repaint(); // Only called on updates, to prevent CPU overhead
+                    }
+                });
+            }
+            OTPMethod::HOTP(_) => {
+                thread::spawn(move || loop {
+                    if let Some(r) = &rx_in {
+                        if let Ok(r) = r.recv() {
+                            match r {
+                                OTPMessageIn::Increment => {
+                                    key_clone.increment();
+                                    let code = generate(&key_clone);
+                                    if let Ok(_) = tx_out.send(OTPMessageOut::Code(code)) {
+                                        ctx.request_repaint();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        (rx_out, tx_in)
+    }
+}
+
+pub mod ui {
+    use eframe::egui::RichText;
+    use eframe::epaint::Color32;
+    use std::collections::HashMap;
+
+    use std::sync::mpsc::{Receiver, Sender};
+
     use crate::file;
-    use crate::otp::generate;
     use crate::otp::OTPMethod;
+    use crate::thread;
     use crate::Key;
 
     use eframe::{egui, CreationContext};
@@ -406,71 +486,6 @@ pub mod ui {
         }
     }
 
-    // 1 thread for each code to generate
-    fn spawn_thread(
-        ctx: &egui::Context,
-        key: &Key,
-    ) -> (Receiver<OTPMessageOut>, Option<Sender<OTPMessageIn>>) {
-        // Channel for sending codes out
-        let (tx_out, rx_out) = mpsc::channel::<OTPMessageOut>();
-        // Channel for receiving updates from GUI (only for incrementing counter)
-        let (tx_in, rx_in) = if let OTPMethod::HOTP(_) = key.options.method {
-            let (t, r) = mpsc::channel::<OTPMessageIn>();
-            (Some(t), Some(r))
-        } else {
-            (None, None)
-        };
-
-        let mut key_clone = key.clone();
-
-        // Generates initial code
-        let code = generate(&key_clone);
-        tx_out.send(OTPMessageOut::Code(code)).unwrap();
-
-        // CTX cheap to clone
-        let ctx = ctx.clone();
-
-        match key.options.method {
-            OTPMethod::TOTP => {
-                thread::spawn(move || loop {
-                    let now = Utc::now();
-
-                    // Allow for different periods   sleep until?
-                    // Every 'x' seconds, generates new code and sends it to the App thread
-                    if now.second() == 0 || now.second() == 30 {
-                        let code = generate(&key_clone);
-
-                        if let Ok(_) = tx_out.send(OTPMessageOut::Code(code)) {
-                            ctx.request_repaint(); // Only called on updates, to prevent CPU overhead
-                                                   // println!("Sent {}", code)
-                        }
-                        thread::sleep(Duration::from_secs(2));
-                    } else {
-                        thread::sleep(Duration::from_millis(50));
-                    }
-                });
-            }
-            OTPMethod::HOTP(_) => {
-                thread::spawn(move || loop {
-                    if let Some(r) = &rx_in {
-                        if let Ok(r) = r.recv() {
-                            match r {
-                                OTPMessageIn::Increment => {
-                                    key_clone.increment();
-                                    let code = generate(&key_clone);
-                                    if let Ok(_) = tx_out.send(OTPMessageOut::Code(code)) {
-                                        ctx.request_repaint();
-                                    }
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-        }
-        (rx_out, tx_in)
-    }
-
     fn generate_display_keys(
         ctx: &egui::Context,
         keys: Vec<Key>,
@@ -483,7 +498,7 @@ pub mod ui {
         for key in keys {
             i += 1;
 
-            let (receive, send) = spawn_thread(&ctx, &key);
+            let (receive, send) = thread::spawn_thread(&ctx, &key);
 
             display_keys.push(DisplayKey::new(
                 i,
@@ -565,7 +580,6 @@ pub mod ui {
         fn update_codes(&mut self) {
             for key in &mut self.keys {
                 if let Ok(v) = self.receivers[&key.id].try_recv() {
-                    // println!("received {:?}", v);
                     match v {
                         OTPMessageOut::Code(c) => {
                             key.code = c;
@@ -685,6 +699,14 @@ pub mod ui {
                         &mut self.add_key.options.hash,
                         hash::HashFn::SHA512,
                         "SHA512",
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Interval");
+                    ui.add(
+                        egui::DragValue::new(&mut self.add_key.options.interval)
+                            .speed(0.2)
+                            .clamp_range(10..=300),
                     );
                 });
                 ui.label(RichText::new(&self.add_err).color(Color32::RED));
