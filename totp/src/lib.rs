@@ -81,7 +81,7 @@ impl Key {
     }
 
     pub fn increment(&mut self) {
-        file::save_increment(&self);
+        file::keys::save_increment(&self);
         self.options.method.increment_counter();
     }
 }
@@ -417,12 +417,11 @@ mod thread {
     use eframe::egui;
 
     fn time_to_timestep(interval: u32) -> Duration {
-        // Milliseconds issue?
-        let now_stamp: u64 = Utc::now().timestamp().try_into().unwrap();
-        let interval: u64 = interval.into();
+        let now_stamp: u64 = Utc::now().timestamp_millis().try_into().unwrap();
+        let interval: u64 = <u32 as Into<u64>>::into(interval) * 1000;
         let next_timestep_stamp = ((now_stamp / interval) + 1) * interval;
 
-        Duration::from_secs(next_timestep_stamp - now_stamp)
+        Duration::from_millis(next_timestep_stamp - now_stamp)
     }
 
     // 1 thread for each code to generate
@@ -490,6 +489,7 @@ pub mod ui {
     use eframe::egui::RichText;
     use eframe::epaint::Color32;
     use eframe::{egui, CreationContext};
+    use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
     use std::sync::mpsc::{Receiver, Sender};
 
@@ -544,7 +544,7 @@ pub mod ui {
         }
     }
 
-    #[derive(PartialEq)]
+    #[derive(PartialEq, Serialize, Deserialize)]
     enum SortBy {
         Date, // Oldest one added will have lowest id
         Name,
@@ -573,7 +573,8 @@ pub mod ui {
         }
     }
 
-    struct AppOptions {
+    #[derive(Serialize, Deserialize)]
+    pub struct AppOptions {
         sort: SortBy,
         spacer: bool,
     }
@@ -661,7 +662,7 @@ pub mod ui {
 
             // As keys can't be deleted when being iterated, they are done here
             if let Some(k) = &self.to_delete {
-                file::remove(&k.name);
+                file::keys::remove(&k.name);
 
                 k.sender.send(OTPMessageIn::Close).unwrap();
                 self.keys
@@ -680,7 +681,7 @@ pub mod ui {
             Self {
                 keys: display_keys,
                 receivers,
-                options: Default::default(),
+                options: file::options::load(),
                 tab: Tab::Main,
                 add_key: Key::default(),
                 add_err: String::new(),
@@ -819,7 +820,7 @@ pub mod ui {
                 ui.separator();
                 if ui.button("Add").clicked() {
                     // If error: display, else: refresh all fields
-                    if let Err(e) = file::add(&self.add_key) {
+                    if let Err(e) = file::keys::add(&self.add_key) {
                         self.add_err = e;
                     } else {
                         self.add_key.time = Utc::now().timestamp();
@@ -847,13 +848,16 @@ pub mod ui {
                             .radio_value(&mut self.options.sort, SortBy::Name, "Name")
                             .clicked()
                     {
-                        self.keys = sort_keys(self.keys.clone(), &self.options.sort)
+                        self.keys = sort_keys(self.keys.clone(), &self.options.sort);
+                        file::options::save(&self.options)
                     }
                 });
                 ui.horizontal(|ui| {
                     let selected = &mut self.options.spacer;
                     ui.label("Spacer");
-                    ui.toggle_value(selected, if *selected { "Enabled" } else { "Disabled" });
+                    if ui.toggle_value(selected, if *selected { "Enabled" } else { "Disabled" }).clicked() {
+                        file::options::save(&self.options)
+                    }
                 });
             });
         }
@@ -861,56 +865,83 @@ pub mod ui {
 }
 
 pub mod file {
-    use crate::Key;
     use std::fs::File;
     use std::path::Path;
 
-    // Fails if key with name already exists
-    pub fn add(key: &Key) -> Result<(), String> {
-        key.validate()?;
-        let mut load = load();
+    const KEYPATH: &str = "keys.txt";
+    const SETTINGSPATH: &str = "settings.txt";
 
-        // Validation
-        if let None = load.iter_mut().find(|k| *k.name == key.name) {
-            load.push(key.clone());
+    pub mod keys {
+        use super::*;
+        use crate::Key;
+
+        // Fails if key with name already exists
+        pub fn add(key: &Key) -> Result<(), String> {
+            key.validate()?;
+            let mut load = load();
+
+            // Validation
+            if let None = load.iter_mut().find(|k| *k.name == key.name) {
+                load.push(key.clone());
+                save(&load);
+                Ok(())
+            } else {
+                Err(String::from("A key with that name already exists"))
+            }
+        }
+
+        // Removes key with name
+        pub fn remove(key_name: &String) {
+            let mut load = load();
+            load.remove(
+                load.iter()
+                    .position(|k| &k.name == key_name)
+                    .expect("Key not found"),
+            );
             save(&load);
-            Ok(())
-        } else {
-            Err(String::from("A key with that name already exists"))
+        }
+
+        fn save(keys: &Vec<Key>) {
+            let path = Path::new(KEYPATH);
+            let file = File::create(path).unwrap();
+            serde_json::to_writer_pretty(file, &keys).unwrap();
+        }
+
+        pub fn load() -> Vec<Key> {
+            if let Ok(f) = File::open(KEYPATH) {
+                serde_json::from_reader(f).unwrap()
+            } else {
+                save(&Vec::new());
+                Vec::new()
+            }
+        }
+
+        pub fn save_increment(key: &Key) {
+            let mut keys = load();
+            if let Some(k) = keys.iter_mut().find(|k| *k == key) {
+                (*k).options.method.increment_counter();
+                save(&keys)
+            }
         }
     }
 
-    // Removes key with name
-    pub fn remove(key_name: &String) {
-        let mut load = load();
-        load.remove(
-            load.iter()
-                .position(|k| &k.name == key_name)
-                .expect("Key not found"),
-        );
-        save(&load);
-    }
+    pub mod options {
+        use super::*;
+        use crate::ui::AppOptions;
 
-    fn save(keys: &Vec<Key>) {
-        let path = Path::new("keys.txt");
-        let file = File::create(path).unwrap();
-        serde_json::to_writer_pretty(file, &keys).unwrap();
-    }
-
-    pub fn load() -> Vec<Key> {
-        if let Ok(f) = File::open("keys.txt") {
-            serde_json::from_reader(f).unwrap()
-        } else {
-            save(&Vec::new());
-            Vec::new()
+        pub fn save(options: &AppOptions) {
+            let path = Path::new(SETTINGSPATH);
+            let file = File::create(path).unwrap();
+            serde_json::to_writer_pretty(file, &options).unwrap();
         }
-    }
 
-    pub fn save_increment(key: &Key) {
-        let mut keys = load();
-        if let Some(k) = keys.iter_mut().find(|k| *k == key) {
-            (*k).options.method.increment_counter();
-            save(&keys)
+        pub fn load() -> AppOptions {
+            if let Ok(f) = File::open(SETTINGSPATH) {
+                serde_json::from_reader(f).unwrap()
+            } else {
+                save(&Default::default());
+                Default::default()
+            }
         }
     }
 }
