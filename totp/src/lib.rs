@@ -816,7 +816,10 @@ pub mod ui {
                             .clamp_range(10..=300),
                     );
                 });
-                ui.label(RichText::new(&self.add_err).color(Color32::RED));
+                ui.vertical_centered(|ui| {
+                    ui.label(RichText::new(&self.add_err).color(Color32::RED))
+                });
+
                 ui.separator();
                 if ui.button("Add").clicked() {
                     // If error: display, else: refresh all fields
@@ -855,7 +858,10 @@ pub mod ui {
                 ui.horizontal(|ui| {
                     let selected = &mut self.options.spacer;
                     ui.label("Spacer");
-                    if ui.toggle_value(selected, if *selected { "Enabled" } else { "Disabled" }).clicked() {
+                    if ui
+                        .toggle_value(selected, if *selected { "Enabled" } else { "Disabled" })
+                        .clicked()
+                    {
                         file::options::save(&self.options)
                     }
                 });
@@ -868,12 +874,13 @@ pub mod file {
     use std::fs::File;
     use std::path::Path;
 
-    const KEYPATH: &str = "keys.txt";
-    const SETTINGSPATH: &str = "settings.txt";
+    const KEYPATH: &str = "keys";
+    const SETTINGSPATH: &str = "settings.json";
 
     pub mod keys {
         use super::*;
         use crate::Key;
+        use encrypt;
 
         // Fails if key with name already exists
         pub fn add(key: &Key) -> Result<(), String> {
@@ -903,17 +910,19 @@ pub mod file {
 
         fn save(keys: &Vec<Key>) {
             let path = Path::new(KEYPATH);
-            let file = File::create(path).unwrap();
-            serde_json::to_writer_pretty(file, &keys).unwrap();
+            let message = serde_json::to_string_pretty(&keys).unwrap();
+            encrypt::save(path, &String::from("hi"), message).unwrap()
         }
 
         pub fn load() -> Vec<Key> {
-            if let Ok(f) = File::open(KEYPATH) {
-                serde_json::from_reader(f).unwrap()
-            } else {
-                save(&Vec::new());
-                Vec::new()
+            let path = Path::new(KEYPATH);
+            if let Ok(m) = encrypt::load(path, &String::from("hi")) {
+                if let Ok(v) = serde_json::from_str(&m) {
+                    return v;
+                }
             }
+
+            Vec::new()
         }
 
         pub fn save_increment(key: &Key) {
@@ -937,11 +946,12 @@ pub mod file {
 
         pub fn load() -> AppOptions {
             if let Ok(f) = File::open(SETTINGSPATH) {
-                serde_json::from_reader(f).unwrap()
-            } else {
-                save(&Default::default());
-                Default::default()
+                if let Ok(v) = serde_json::from_reader(f) {
+                    return v;
+                }
             }
+            save(&Default::default());
+            Default::default()
         }
     }
 }

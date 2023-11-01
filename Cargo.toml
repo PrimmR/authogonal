@@ -4,5 +4,6 @@ members = [
     "totp",
     "hash",
     "sort",
+    "encrypt",
 ]
 resolver = "2"
