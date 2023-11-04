@@ -80,8 +80,8 @@ impl Key {
         Ok(())
     }
 
-    pub fn increment(&mut self) {
-        file::keys::save_increment(&self);
+    pub fn increment(&mut self, e_key: &encrypt::EncryptionKey) {
+        file::keys::save_increment(&self, e_key);
         self.options.method.increment_counter();
     }
 }
@@ -411,7 +411,7 @@ mod thread {
     use std::time::Duration;
 
     use crate::otp::{generate, OTPMethod};
-    use crate::ui::{OTPMessageIn, OTPMessageOut};
+    use crate::ui::main::{OTPMessageIn, OTPMessageOut};
     use crate::Key;
 
     use eframe::egui;
@@ -467,8 +467,8 @@ mod thread {
                 thread::spawn(move || loop {
                     if let Ok(r) = rx_in.recv() {
                         match r {
-                            OTPMessageIn::Increment => {
-                                key_clone.increment();
+                            OTPMessageIn::Increment(e_key) => {
+                                key_clone.increment(&e_key);
                                 let code = generate(&key_clone);
                                 if let Ok(_) = tx_out.send(OTPMessageOut::Code(code)) {
                                     ctx.request_repaint();
@@ -485,229 +485,236 @@ mod thread {
 }
 
 pub mod ui {
-    use chrono::Utc;
+    use crate::file;
+    use encrypt::EncryptionKey;
     use eframe::egui::RichText;
     use eframe::epaint::Color32;
     use eframe::{egui, CreationContext};
-    use serde::{Deserialize, Serialize};
-    use std::collections::HashMap;
-    use std::sync::mpsc::{Receiver, Sender};
 
-    use crate::file;
-    use crate::otp::OTPMethod;
-    use crate::thread;
-    use crate::Key;
+    pub mod main {
+        use super::*;
 
-    use sort::merge_sort;
+        use chrono::Utc;
+        use serde::{Deserialize, Serialize};
+        use std::collections::HashMap;
+        use std::sync::mpsc::{Receiver, Sender};
 
-    #[derive(Debug)]
-    pub enum OTPMessageOut {
-        Code(u32),
-    }
+        use crate::otp::OTPMethod;
+        use crate::thread;
+        use crate::Key;
+        use sort::merge_sort;
 
-    #[derive(Debug)]
-    pub enum OTPMessageIn {
-        Increment,
-        Close,
-    }
+        #[derive(Debug)]
+        pub enum OTPMessageOut {
+            Code(u32),
+        }
 
-    // Data retained to be displayed
-    #[derive(Clone)]
-    struct DisplayKey {
-        code: u32,
-        length: u8,
-        name: String,
-        sender: Sender<OTPMessageIn>,
-        time: i64,
-    }
+        #[derive(Debug)]
+        pub enum OTPMessageIn {
+            Increment(encrypt::EncryptionKey),
+            Close,
+        }
 
-    impl DisplayKey {
-        fn new(name: String, length: u8, sender: Sender<OTPMessageIn>, time: i64) -> Self {
-            Self {
-                code: 0, // Code updated on thread startup
-                length,
-                name,
-                sender,
-                time,
+        // Data retained to be displayed
+        #[derive(Clone)]
+        struct DisplayKey {
+            code: u32,
+            length: u8,
+            name: String,
+            sender: Sender<OTPMessageIn>,
+            time: i64,
+        }
+
+        impl DisplayKey {
+            fn new(name: String, length: u8, sender: Sender<OTPMessageIn>, time: i64) -> Self {
+                Self {
+                    code: 0, // Code updated on thread startup
+                    length,
+                    name,
+                    sender,
+                    time,
+                }
+            }
+
+            // Converts code to string & gives leading 0s
+            fn generate_code_string(&self, spacer: bool) -> String {
+                let d: usize = self.length.into();
+                let mut code = format!("{:0>d$}", self.code, d = d);
+                // Insert space in centre
+                if spacer && code.len() % 2 == 0 {
+                    code.insert(code.len() / 2, ' ')
+                }
+                code
             }
         }
 
-        // Converts code to string & gives leading 0s
-        fn generate_code_string(&self, spacer: bool) -> String {
-            let d: usize = self.length.into();
-            let mut code = format!("{:0>d$}", self.code, d = d);
-            // Insert space in centre
-            if spacer && code.len() % 2 == 0 {
-                code.insert(code.len() / 2, ' ')
-            }
-            code
-        }
-    }
-
-    #[derive(PartialEq, Serialize, Deserialize)]
-    enum SortBy {
-        Date, // Oldest one added will have lowest id
-        Name,
-    }
-
-    impl Default for SortBy {
-        fn default() -> Self {
-            Self::Date
-        }
-    }
-
-    #[derive(PartialEq)]
-    enum Tab {
-        Main,
-        Add,
-        Options,
-    }
-
-    impl Tab {
-        fn to_str(&self) -> String {
-            match self {
-                Self::Main => String::from("Main"),
-                Self::Add => String::from("Add"),
-                Self::Options => String::from("Options"),
-            }
-        }
-    }
-
-    #[derive(Serialize, Deserialize)]
-    pub struct AppOptions {
-        sort: SortBy,
-        spacer: bool,
-    }
-
-    impl Default for AppOptions {
-        fn default() -> Self {
-            Self {
-                sort: Default::default(),
-                spacer: true,
-            }
-        }
-    }
-
-    fn generate_display_keys(
-        ctx: &egui::Context,
-        keys: Vec<Key>,
-        sort: &SortBy,
-    ) -> (Vec<DisplayKey>, HashMap<String, Receiver<OTPMessageOut>>) {
-        let mut display_keys = Vec::new();
-        let mut receivers = HashMap::new();
-
-        for key in keys {
-            let (key, reciever) = generate_display_key(ctx, &key);
-            receivers.insert(key.name.clone(), reciever);
-            display_keys.push(key)
+        #[derive(PartialEq, Serialize, Deserialize)]
+        enum SortBy {
+            Date, // Oldest one added will have lowest id
+            Name,
         }
 
-        let display_keys = sort_keys(display_keys, sort);
-        (display_keys, receivers)
-    }
-
-    fn generate_display_key(
-        ctx: &egui::Context,
-        key: &Key,
-    ) -> (DisplayKey, Receiver<OTPMessageOut>) {
-        let (receive, send) = thread::spawn_thread(&ctx, &key);
-        let display_key =
-            DisplayKey::new((key.name).to_string(), key.options.length, send, key.time);
-
-        (display_key, receive)
-    }
-
-    fn sort_keys(keys: Vec<DisplayKey>, sort: &SortBy) -> Vec<DisplayKey> {
-        match sort {
-            SortBy::Date => merge_sort(&keys, |v| v.time),
-            SortBy::Name => merge_sort(&keys, |v| v.name.to_uppercase()),
-        }
-    }
-
-    // Create App instance & run
-    pub fn gui(keys: Vec<Key>) -> Result<(), eframe::Error> {
-        let options = eframe::NativeOptions {
-            initial_window_size: Some(egui::vec2(320., 342.)),
-            resizable: false,
-            centered: true,
-            ..Default::default()
-        };
-        eframe::run_native(
-            "TOTP",
-            options,
-            Box::new(|cc| Box::<App>::new(App::new(cc, keys))),
-        )
-    }
-
-    struct App {
-        keys: Vec<DisplayKey>,
-        receivers: HashMap<String, Receiver<OTPMessageOut>>, // Threads separate to keys as cannot be cloned - 1-1 relationship between id and thread
-        tab: Tab,
-        add_key: Key,
-        options: AppOptions,
-        add_err: String,
-        to_delete: Option<DisplayKey>,
-    }
-
-    impl eframe::App for App {
-        // Called on interaction / new code
-        fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-            self.update_codes();
-            self.draw_menu(&ctx);
-            match self.tab {
-                Tab::Main => self.draw_main(&ctx),
-                Tab::Add => self.draw_add(&ctx),
-                Tab::Options => self.draw_options(&ctx),
-            }
-
-            // As keys can't be deleted when being iterated, they are done here
-            if let Some(k) = &self.to_delete {
-                file::keys::remove(&k.name);
-
-                k.sender.send(OTPMessageIn::Close).unwrap();
-                self.keys
-                    .remove(self.keys.iter().position(|x| x.name == k.name).unwrap());
-                self.receivers.remove(&k.name).unwrap();
-                self.to_delete = None;
-            }
-        }
-    }
-
-    impl App {
-        // Takes necessary data from Keys and converts into DisplayKey
-        fn new(cc: &CreationContext, keys: Vec<Key>) -> Self {
-            let (display_keys, receivers) =
-                generate_display_keys(&cc.egui_ctx, keys, &Default::default());
-            Self {
-                keys: display_keys,
-                receivers,
-                options: file::options::load(),
-                tab: Tab::Main,
-                add_key: Key::default(),
-                add_err: String::new(),
-                to_delete: None,
+        impl Default for SortBy {
+            fn default() -> Self {
+                Self::Date
             }
         }
 
-        // When thread updates key, write to App state
-        fn update_codes(&mut self) {
-            for key in &mut self.keys {
-                if let Ok(v) = self.receivers[&key.name].try_recv() {
-                    match v {
-                        OTPMessageOut::Code(c) => {
-                            key.code = c;
-                        }
-                    }
+        #[derive(PartialEq)]
+        enum Tab {
+            Main,
+            Add,
+            Options,
+        }
+
+        impl Tab {
+            fn to_str(&self) -> String {
+                match self {
+                    Self::Main => String::from("Main"),
+                    Self::Add => String::from("Add"),
+                    Self::Options => String::from("Options"),
                 }
             }
         }
 
-        //////////////////
-        // GUI elements //
-        //////////////////
-        fn draw_menu(&mut self, ctx: &egui::Context) {
-            // Creates clickable labels for each tab that switches window
-            macro_rules! menu_tabs {
+        #[derive(Serialize, Deserialize)]
+        pub struct AppOptions {
+            sort: SortBy,
+            spacer: bool,
+        }
+
+        impl Default for AppOptions {
+            fn default() -> Self {
+                Self {
+                    sort: Default::default(),
+                    spacer: true,
+                }
+            }
+        }
+
+        fn generate_display_keys(
+            ctx: &egui::Context,
+            keys: Vec<Key>,
+            sort: &SortBy,
+        ) -> (Vec<DisplayKey>, HashMap<String, Receiver<OTPMessageOut>>) {
+            let mut display_keys = Vec::new();
+            let mut receivers = HashMap::new();
+
+            for key in keys {
+                let (key, reciever) = generate_display_key(ctx, &key);
+                receivers.insert(key.name.clone(), reciever);
+                display_keys.push(key)
+            }
+
+            let display_keys = sort_keys(display_keys, sort);
+            (display_keys, receivers)
+        }
+
+        fn generate_display_key(
+            ctx: &egui::Context,
+            key: &Key,
+        ) -> (DisplayKey, Receiver<OTPMessageOut>) {
+            let (receive, send) = thread::spawn_thread(&ctx, &key);
+            let display_key =
+                DisplayKey::new((key.name).to_string(), key.options.length, send, key.time);
+
+            (display_key, receive)
+        }
+
+        fn sort_keys(keys: Vec<DisplayKey>, sort: &SortBy) -> Vec<DisplayKey> {
+            match sort {
+                SortBy::Date => merge_sort(&keys, |v| v.time),
+                SortBy::Name => merge_sort(&keys, |v| v.name.to_uppercase()),
+            }
+        }
+
+        // Create App instance & run
+        pub fn gui(encryption_key: EncryptionKey) -> Result<(), eframe::Error> {
+            let options = eframe::NativeOptions {
+                initial_window_size: Some(egui::vec2(320., 342.)),
+                resizable: false,
+                centered: true,
+                ..Default::default()
+            };
+            eframe::run_native(
+                "TOTP",
+                options,
+                Box::new(move |cc| Box::<App>::new(App::new(cc, encryption_key))),
+            )
+        }
+
+        struct App {
+            encryption_key: EncryptionKey,
+            keys: Vec<DisplayKey>,
+            receivers: HashMap<String, Receiver<OTPMessageOut>>, // Threads separate to keys as cannot be cloned - 1-1 relationship between id and thread
+            tab: Tab,
+            add_key: Key,
+            options: AppOptions,
+            add_err: String,
+            to_delete: Option<DisplayKey>,
+        }
+
+        impl eframe::App for App {
+            // Called on interaction / new code
+            fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+                self.update_codes();
+                self.draw_menu(&ctx);
+                match self.tab {
+                    Tab::Main => self.draw_main(&ctx),
+                    Tab::Add => self.draw_add(&ctx),
+                    Tab::Options => self.draw_options(&ctx),
+                }
+
+                // As keys can't be deleted when being iterated, they are done here
+                if let Some(k) = &self.to_delete {
+                    file::keys::remove(&k.name, &self.encryption_key);
+
+                    k.sender.send(OTPMessageIn::Close).unwrap();
+                    self.keys
+                        .remove(self.keys.iter().position(|x| x.name == k.name).unwrap());
+                    self.receivers.remove(&k.name).unwrap();
+                    self.to_delete = None;
+                }
+            }
+        }
+
+        impl App {
+            // Takes necessary data from Keys and converts into DisplayKey
+            fn new(cc: &CreationContext, encryption_key: EncryptionKey) -> Self {
+                let keys = file::keys::load(&encryption_key);
+                let (display_keys, receivers) =
+                    generate_display_keys(&cc.egui_ctx, keys, &Default::default());
+                Self {
+                    encryption_key,
+                    keys: display_keys,
+                    receivers,
+                    options: file::options::load(),
+                    tab: Tab::Main,
+                    add_key: Key::default(),
+                    add_err: String::new(),
+                    to_delete: None,
+                }
+            }
+
+            // When thread updates key, write to App state
+            fn update_codes(&mut self) {
+                for key in &mut self.keys {
+                    if let Ok(v) = self.receivers[&key.name].try_recv() {
+                        match v {
+                            OTPMessageOut::Code(c) => {
+                                key.code = c;
+                            }
+                        }
+                    }
+                }
+            }
+
+            //////////////////
+            // GUI elements //
+            //////////////////
+            fn draw_menu(&mut self, ctx: &egui::Context) {
+                // Creates clickable labels for each tab that switches window
+                macro_rules! menu_tabs {
                 ($w:expr, $($x:expr), *) => {
                     let ui = $w;
                     $(
@@ -718,154 +725,251 @@ pub mod ui {
                 }
             }
 
-            egui::TopBottomPanel::top("Menu").show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    menu_tabs!(ui, Tab::Main, Tab::Add, Tab::Options);
-                })
-            });
-        }
+                egui::TopBottomPanel::top("Menu").show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        menu_tabs!(ui, Tab::Main, Tab::Add, Tab::Options);
+                    })
+                });
+            }
 
-        fn draw_main(&mut self, ctx: &egui::Context) {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for key in &self.keys {
-                        ui.push_id(&key.name, |ui| {
-                            let response = ui
-                                .vertical(|ui| {
-                                    ui.label(egui::RichText::new(&*key.name).size(20.));
-                                    ui.label(
-                                        egui::RichText::new(
-                                            key.generate_code_string(self.options.spacer),
-                                        )
-                                        .size(30.)
-                                        .strong(),
-                                    );
-                                    ui.separator();
-                                })
-                                .response;
+            fn draw_main(&mut self, ctx: &egui::Context) {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        for key in &self.keys {
+                            ui.push_id(&key.name, |ui| {
+                                let response = ui
+                                    .vertical(|ui| {
+                                        ui.label(egui::RichText::new(&*key.name).size(20.));
+                                        ui.label(
+                                            egui::RichText::new(
+                                                key.generate_code_string(self.options.spacer),
+                                            )
+                                            .size(30.)
+                                            .strong(),
+                                        );
+                                        ui.separator();
+                                    })
+                                    .response;
 
-                            // No harm if sent to TOTP
-                            if response.interact(egui::Sense::click()).clicked() {
-                                key.sender.send(OTPMessageIn::Increment).unwrap();
-                            }
+                                // No harm if sent to TOTP
+                                if response.interact(egui::Sense::click()).clicked() {
+                                    key.sender
+                                        .send(OTPMessageIn::Increment(self.encryption_key.clone()))
+                                        .unwrap();
+                                }
 
-                            let popup_id = ui.make_persistent_id("my_unique_id");
+                                let popup_id = ui.make_persistent_id("my_unique_id");
 
-                            if response.interact(egui::Sense::click()).secondary_clicked() {
-                                ui.memory_mut(|mem| mem.toggle_popup(popup_id));
-                            }
+                                if response.interact(egui::Sense::click()).secondary_clicked() {
+                                    ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                                }
 
-                            egui::popup::popup_above_or_below_widget(
-                                ui,
-                                popup_id,
-                                &response,
-                                egui::AboveOrBelow::Below,
-                                |ui| {
-                                    ui.set_max_width(20.0); // if you want to control the size
-                                    if ui.button("Delete").clicked() {
-                                        self.to_delete = Some(key.clone());
-                                    }
-                                },
-                            );
-                        });
+                                egui::popup::popup_above_or_below_widget(
+                                    ui,
+                                    popup_id,
+                                    &response,
+                                    egui::AboveOrBelow::Below,
+                                    |ui| {
+                                        ui.set_max_width(20.0); // if you want to control the size
+                                        if ui.button("Delete").clicked() {
+                                            self.to_delete = Some(key.clone());
+                                        }
+                                    },
+                                );
+                            });
+                        }
+                    });
+                });
+            }
+
+            fn draw_add(&mut self, ctx: &egui::Context) {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Secret");
+                        ui.text_edit_singleline(&mut self.add_key.secret);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Name ");
+                        ui.text_edit_singleline(&mut self.add_key.name);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Method");
+                        ui.radio_value(&mut self.add_key.options.method, OTPMethod::TOTP, "TOTP");
+                        ui.radio_value(
+                            &mut self.add_key.options.method,
+                            OTPMethod::HOTP(0),
+                            "HOTP",
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Length  ");
+                        ui.radio_value(&mut self.add_key.options.length, 4, "4");
+                        ui.radio_value(&mut self.add_key.options.length, 5, "5");
+                        ui.radio_value(&mut self.add_key.options.length, 6, "6");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Hash Fn ");
+                        ui.radio_value(&mut self.add_key.options.hash, hash::HashFn::SHA1, "SHA1");
+                        ui.radio_value(
+                            &mut self.add_key.options.hash,
+                            hash::HashFn::SHA256,
+                            "SHA256",
+                        );
+                        ui.radio_value(
+                            &mut self.add_key.options.hash,
+                            hash::HashFn::SHA512,
+                            "SHA512",
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Interval");
+                        ui.add(
+                            egui::DragValue::new(&mut self.add_key.options.interval)
+                                .speed(0.2)
+                                .clamp_range(10..=300),
+                        );
+                    });
+                    ui.vertical_centered(|ui| {
+                        ui.label(RichText::new(&self.add_err).color(Color32::RED))
+                    });
+
+                    ui.separator();
+                    if ui.button("Add").clicked() {
+                        // If error: display, else: refresh all fields
+                        if let Err(e) = file::keys::add(&self.add_key, &self.encryption_key) {
+                            self.add_err = e;
+                        } else {
+                            self.add_key.time = Utc::now().timestamp();
+
+                            let (key, reciever) = generate_display_key(ctx, &self.add_key);
+                            self.receivers.insert(key.name.clone(), reciever);
+                            self.keys.push(key);
+
+                            self.add_key = Default::default();
+                            self.tab = Tab::Main;
+                            self.add_err = String::new();
+                        }
                     }
                 });
-            });
-        }
+            }
 
-        fn draw_add(&mut self, ctx: &egui::Context) {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Secret");
-                    ui.text_edit_singleline(&mut self.add_key.secret);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Name ");
-                    ui.text_edit_singleline(&mut self.add_key.name);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Method");
-                    ui.radio_value(&mut self.add_key.options.method, OTPMethod::TOTP, "TOTP");
-                    ui.radio_value(&mut self.add_key.options.method, OTPMethod::HOTP(0), "HOTP");
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Length  ");
-                    ui.radio_value(&mut self.add_key.options.length, 4, "4");
-                    ui.radio_value(&mut self.add_key.options.length, 5, "5");
-                    ui.radio_value(&mut self.add_key.options.length, 6, "6");
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Hash Fn ");
-                    ui.radio_value(&mut self.add_key.options.hash, hash::HashFn::SHA1, "SHA1");
-                    ui.radio_value(
-                        &mut self.add_key.options.hash,
-                        hash::HashFn::SHA256,
-                        "SHA256",
-                    );
-                    ui.radio_value(
-                        &mut self.add_key.options.hash,
-                        hash::HashFn::SHA512,
-                        "SHA512",
-                    );
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Interval");
-                    ui.add(
-                        egui::DragValue::new(&mut self.add_key.options.interval)
-                            .speed(0.2)
-                            .clamp_range(10..=300),
-                    );
-                });
-                ui.vertical_centered(|ui| {
-                    ui.label(RichText::new(&self.add_err).color(Color32::RED))
-                });
-
-                ui.separator();
-                if ui.button("Add").clicked() {
-                    // If error: display, else: refresh all fields
-                    if let Err(e) = file::keys::add(&self.add_key) {
-                        self.add_err = e;
-                    } else {
-                        self.add_key.time = Utc::now().timestamp();
-
-                        let (key, reciever) = generate_display_key(ctx, &self.add_key);
-                        self.receivers.insert(key.name.clone(), reciever);
-                        self.keys.push(key);
-
-                        self.add_key = Default::default();
-                        self.tab = Tab::Main;
-                        self.add_err = String::new();
-                    }
-                }
-            });
-        }
-
-        fn draw_options(&mut self, ctx: &egui::Context) {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Sort");
-                    if ui
-                        .radio_value(&mut self.options.sort, SortBy::Date, "Time Added")
-                        .clicked()
-                        || ui
-                            .radio_value(&mut self.options.sort, SortBy::Name, "Name")
+            fn draw_options(&mut self, ctx: &egui::Context) {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Sort");
+                        if ui
+                            .radio_value(&mut self.options.sort, SortBy::Date, "Time Added")
                             .clicked()
-                    {
-                        self.keys = sort_keys(self.keys.clone(), &self.options.sort);
-                        file::options::save(&self.options)
-                    }
+                            || ui
+                                .radio_value(&mut self.options.sort, SortBy::Name, "Name")
+                                .clicked()
+                        {
+                            self.keys = sort_keys(self.keys.clone(), &self.options.sort);
+                            file::options::save(&self.options)
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        let selected = &mut self.options.spacer;
+                        ui.label("Spacer");
+                        if ui
+                            .toggle_value(selected, if *selected { "Enabled" } else { "Disabled" })
+                            .clicked()
+                        {
+                            file::options::save(&self.options)
+                        }
+                    });
                 });
-                ui.horizontal(|ui| {
-                    let selected = &mut self.options.spacer;
-                    ui.label("Spacer");
-                    if ui
-                        .toggle_value(selected, if *selected { "Enabled" } else { "Disabled" })
-                        .clicked()
-                    {
-                        file::options::save(&self.options)
-                    }
+            }
+        }
+    }
+
+    pub mod password {
+        use std::cell::RefCell;
+        use std::path::Path;
+        use std::rc::Rc;
+
+        use super::*;
+
+        // Create App instance & run
+        pub fn gui() -> Result<Option<EncryptionKey>, eframe::Error> {
+            let options = eframe::NativeOptions {
+                initial_window_size: Some(egui::vec2(320., 160.)),
+                resizable: false,
+                centered: true,
+                ..Default::default()
+            };
+
+            let encryption_key = Rc::new(RefCell::new(None));
+            let encryption_key_clone = encryption_key.clone();
+
+            {
+                eframe::run_native(
+                    "TOTP",
+                    options,
+                    Box::new(|_cc| Box::<App>::new(App::new(encryption_key_clone))),
+                )?;
+            }
+
+            // No chance of panicing, as this code is run after app is dropped
+            let out_ref_c = encryption_key.borrow();
+            Ok(*out_ref_c)
+        }
+
+        struct App {
+            // Password not kept in memory, only the hash
+            encryption_key: Rc<RefCell<Option<EncryptionKey>>>, // Allows for the string to have multiple references + be interior mutable
+            password_field: String,
+            error: String,
+        }
+
+        impl eframe::App for App {
+            fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.label("Please enter a password");
+                    ui.text_edit_singleline(&mut self.password_field);
+                    ui.vertical_centered(|ui| {
+                        ui.label(RichText::new(&self.error).color(Color32::RED))
+                    });
+                    ui.separator();
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Enter").clicked() {
+                            let path = Path::new(crate::file::KEYPATH);
+                            let e_key = encrypt::password_to_key(&self.password_field);
+
+                            if let Err(e) = encrypt::load(path, &e_key) {
+                                self.error =
+                                    if let encrypt::Error::ReadError = *(e.downcast().unwrap()) {
+                                        String::from("Incorrect password")
+                                    } else {
+                                        String::from("An error occurred")
+                                    }
+                            } else {
+                                *(*self.encryption_key).borrow_mut() = Some(e_key);
+                                frame.close()
+                            }
+                        }
+                        let response = ui
+                            .button("Set as new password")
+                            .on_hover_text("Warning, this will delete all currently stored codes");
+                        if response.clicked() {
+                            file::keys::delete_all(&encrypt::password_to_key(&self.password_field));
+                            *(*self.encryption_key).borrow_mut() = Some(encrypt::password_to_key(&self.password_field));
+                            frame.close()
+                        }
+                    })
                 });
-            });
+            }
+        }
+
+        impl App {
+            fn new(encryption_key: Rc<RefCell<Option<EncryptionKey>>>) -> Self {
+                Self {
+                    encryption_key,
+                    password_field: String::new(),
+                    error: String::new(),
+                }
+            }
         }
     }
 }
@@ -874,23 +978,23 @@ pub mod file {
     use std::fs::File;
     use std::path::Path;
 
-    const KEYPATH: &str = "keys";
-    const SETTINGSPATH: &str = "settings.json";
+    pub const KEYPATH: &str = "keys";
+    pub const SETTINGSPATH: &str = "settings.json";
 
     pub mod keys {
         use super::*;
         use crate::Key;
-        use encrypt;
+        use encrypt::{self, EncryptionKey};
 
         // Fails if key with name already exists
-        pub fn add(key: &Key) -> Result<(), String> {
+        pub fn add(key: &Key, e_key: &EncryptionKey) -> Result<(), String> {
             key.validate()?;
-            let mut load = load();
+            let mut load = load(e_key);
 
             // Validation
             if let None = load.iter_mut().find(|k| *k.name == key.name) {
                 load.push(key.clone());
-                save(&load);
+                save(&load, e_key);
                 Ok(())
             } else {
                 Err(String::from("A key with that name already exists"))
@@ -898,25 +1002,25 @@ pub mod file {
         }
 
         // Removes key with name
-        pub fn remove(key_name: &String) {
-            let mut load = load();
+        pub fn remove(key_name: &String, e_key: &EncryptionKey) {
+            let mut load = load(e_key);
             load.remove(
                 load.iter()
                     .position(|k| &k.name == key_name)
                     .expect("Key not found"),
             );
-            save(&load);
+            save(&load, e_key);
         }
 
-        fn save(keys: &Vec<Key>) {
+        fn save(keys: &Vec<Key>, e_key: &EncryptionKey) {
             let path = Path::new(KEYPATH);
             let message = serde_json::to_string_pretty(&keys).unwrap();
-            encrypt::save(path, &String::from("hi"), message).unwrap()
+            encrypt::save(path, e_key, message).unwrap()
         }
 
-        pub fn load() -> Vec<Key> {
+        pub fn load(e_key: &EncryptionKey) -> Vec<Key> {
             let path = Path::new(KEYPATH);
-            if let Ok(m) = encrypt::load(path, &String::from("hi")) {
+            if let Ok(m) = encrypt::load(path, e_key) {
                 if let Ok(v) = serde_json::from_str(&m) {
                     return v;
                 }
@@ -925,18 +1029,22 @@ pub mod file {
             Vec::new()
         }
 
-        pub fn save_increment(key: &Key) {
-            let mut keys = load();
+        pub fn save_increment(key: &Key, e_key: &EncryptionKey) {
+            let mut keys = load(e_key);
             if let Some(k) = keys.iter_mut().find(|k| *k == key) {
                 (*k).options.method.increment_counter();
-                save(&keys)
+                save(&keys, e_key)
             }
+        }
+
+        pub fn delete_all(e_key: &EncryptionKey) {
+            save(&Vec::new(), e_key)
         }
     }
 
     pub mod options {
         use super::*;
-        use crate::ui::AppOptions;
+        use crate::ui::main::AppOptions;
 
         pub fn save(options: &AppOptions) {
             let path = Path::new(SETTINGSPATH);

@@ -16,10 +16,10 @@ use std::{
 
 pub fn save(
     path: &Path,
-    password: &String,
+    key: &EncryptionKey,
     message: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let key = password_to_key(password);
+    let key = Key::<Aes256Gcm>::from_slice(key);
     // Add validation part
 
     let cipher = Aes256Gcm::new(&key);
@@ -39,11 +39,11 @@ pub fn save(
     Ok(())
 }
 
-pub fn load(path: &Path, password: &String) -> Result<String, Box<dyn std::error::Error>> {
-    let key = password_to_key(password);
+pub fn load(path: &Path, key: &EncryptionKey) -> Result<String, Box<dyn std::error::Error>> {
+    let key = Key::<Aes256Gcm>::from_slice(key);
     let cipher = Aes256Gcm::new(&key);
 
-    let mut f = File::open(path)?;
+    if let Ok(mut f) = File::open(path){
 
     // Read exactly 12 bytes to get the nonce
     let mut nonce = [0; 12];
@@ -61,22 +61,27 @@ pub fn load(path: &Path, password: &String) -> Result<String, Box<dyn std::error
     };
 
     Ok(String::from_utf8(plaintext)?)
+} else {
+    File::create(path).unwrap();
+    Ok(String::new())
+}
 }
 
+// Type alias for improved readability
+pub type EncryptionKey = [u8; 32];
+
 // Generates numerical key from string using hash algorithm
-fn password_to_key<'a>(password: &String) -> Key<Aes256Gcm> {
+pub fn password_to_key<'a>(password: &String) -> EncryptionKey {
     // Note that you can get byte array from slice using the `TryInto` trait:
 
-    let key: [u8; 32] = hash::HashFn::SHA256
+    hash::HashFn::SHA256
         .digest(&password.as_bytes().to_vec())
         .try_into()
-        .unwrap();
-    let k = Key::<Aes256Gcm>::from_slice(&key);
-    k.clone()
+        .unwrap()
 }
 
 #[derive(Debug)]
-enum Error {
+pub enum Error {
     ReadError, // ReadError signifies incorrect password
     WriteError,
 }
@@ -97,7 +102,7 @@ mod tests {
     fn integrity() {
         let path = Path::new("test_integrity");
         let plaintext = String::from("manonam");
-        let password = String::from("2082");
+        let password = password_to_key(&String::from("2082"));
         save(path, &password, plaintext.clone()).unwrap();
         assert_eq!(load(path, &password).unwrap(), plaintext);
         let _ = std::fs::remove_file(path);
@@ -108,8 +113,8 @@ mod tests {
     fn empty() {
         let path = Path::new("test_empty");
         let plaintext = String::from("");
-        save(path, &String::from("a"), plaintext.clone()).unwrap();
-        let load = load(path, &String::from("b"));
+        save(path, &password_to_key(&String::from("a")), plaintext.clone()).unwrap();
+        let load = load(path, &password_to_key(&String::from("b")));
         let _ = std::fs::remove_file(path);
         load.unwrap();
     }
