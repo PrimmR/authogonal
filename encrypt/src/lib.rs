@@ -5,7 +5,7 @@ use aes_gcm::{
     Aes256Gcm, Key,
 };
 
-use hash;
+use hash::{self, Hashable};
 use std::path::Path;
 use std::{
     fs::File,
@@ -43,39 +43,38 @@ pub fn load(path: &Path, key: &EncryptionKey) -> Result<String, Box<dyn std::err
     let key = Key::<Aes256Gcm>::from_slice(key);
     let cipher = Aes256Gcm::new(&key);
 
-    if let Ok(mut f) = File::open(path){
+    if let Ok(mut f) = File::open(path) {
+        // Read exactly 12 bytes to get the nonce
+        let mut nonce = [0; 12];
+        f.read_exact(&mut nonce)?;
 
-    // Read exactly 12 bytes to get the nonce
-    let mut nonce = [0; 12];
-    f.read_exact(&mut nonce)?;
+        // Read the rest for the cipher
+        let mut ciphertext = Vec::new();
+        f.read_to_end(&mut ciphertext)?;
 
-    // Read the rest for the cipher
-    let mut ciphertext = Vec::new();
-    f.read_to_end(&mut ciphertext)?;
+        // Decrypt and return
+        // Validation done by crate
+        let plaintext = match cipher.decrypt(&(nonce).into(), ciphertext.as_ref()) {
+            Ok(v) => v,
+            Err(_) => return Err(Box::new(Error::ReadError)),
+        };
 
-    // Decrypt and return
-    // Validation done by crate
-    let plaintext = match cipher.decrypt(&(nonce).into(), ciphertext.as_ref()) {
-        Ok(v) => v,
-        Err(_) => return Err(Box::new(Error::ReadError)),
-    };
-
-    Ok(String::from_utf8(plaintext)?)
-} else {
-    File::create(path).unwrap();
-    Ok(String::new())
-}
+        Ok(String::from_utf8(plaintext)?)
+    } else {
+        File::create(path).unwrap();
+        Ok(String::new())
+    }
 }
 
 // Type alias for improved readability
 pub type EncryptionKey = [u8; 32];
 
 // Generates numerical key from string using hash algorithm
-pub fn password_to_key<'a>(password: &String) -> EncryptionKey {
+pub fn password_to_key<'a>(password: &impl Hashable) -> EncryptionKey {
     // Note that you can get byte array from slice using the `TryInto` trait:
 
     hash::HashFn::SHA256
-        .digest(&password.as_bytes().to_vec())
+        .digest(&password.to_message())
         .try_into()
         .unwrap()
 }
@@ -113,7 +112,12 @@ mod tests {
     fn empty() {
         let path = Path::new("test_empty");
         let plaintext = String::from("");
-        save(path, &password_to_key(&String::from("a")), plaintext.clone()).unwrap();
+        save(
+            path,
+            &password_to_key(&String::from("a")),
+            plaintext.clone(),
+        )
+        .unwrap();
         let load = load(path, &password_to_key(&String::from("b")));
         let _ = std::fs::remove_file(path);
         load.unwrap();

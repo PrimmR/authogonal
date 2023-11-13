@@ -3,7 +3,7 @@ mod linked_list {
     // Avioding recursive functions as would limit to 127 nodes
     // Indexed 'backwards'
     #[derive(PartialEq)]
-    struct LinkedList<T> {
+    pub struct LinkedList<T> {
         head: Link<T>,
     }
 
@@ -16,11 +16,11 @@ mod linked_list {
     }
 
     impl<T: std::cmp::PartialEq> LinkedList<T> {
-        fn new() -> Self {
+        pub const fn new() -> Self {
             Self { head: None }
         }
 
-        fn push(&mut self, val: T) {
+        pub fn push(&mut self, val: T) {
             let new = Box::new(Node {
                 value: val,
                 next: self.head.take(),
@@ -128,98 +128,148 @@ mod linked_list {
     mod tests {
         use super::*;
 
-        mod list {
-            use super::*;
+        #[test]
+        fn new() {
+            assert_eq!(LinkedList::<u8>::new(), LinkedList { head: None })
+        }
 
-            #[test]
-            fn new() {
-                assert_eq!(LinkedList::<u8>::new(), LinkedList { head: None })
-            }
+        #[test]
+        fn add() {
+            let mut list = LinkedList::new();
+            list.push(14);
+            assert_eq!(list, ll!(14))
+        }
 
-            #[test]
-            fn add() {
-                let mut list = LinkedList::new();
-                list.push(14);
-                assert_eq!(list, ll!(14))
-            }
-
-            #[test]
-            fn add_macro() {
-                let list = ll![20, 82];
-                assert_eq!(
-                    list,
-                    LinkedList {
-                        head: Some(Box::new(Node {
-                            value: 82,
-                            next: Some(Box::new(Node {
-                                value: 20,
-                                next: None
-                            }))
+        #[test]
+        fn add_macro() {
+            let list = ll![20, 82];
+            assert_eq!(
+                list,
+                LinkedList {
+                    head: Some(Box::new(Node {
+                        value: 82,
+                        next: Some(Box::new(Node {
+                            value: 20,
+                            next: None
                         }))
-                    }
-                )
-            }
+                    }))
+                }
+            )
+        }
 
-            #[test]
-            fn pop() {
-                let mut list = ll![20, 82, 21, 05];
-                list.pop();
-                assert_eq!(list, ll![20, 82, 21])
-            }
+        #[test]
+        fn pop() {
+            let mut list = ll![20, 82, 21, 05];
+            list.pop();
+            assert_eq!(list, ll![20, 82, 21])
+        }
 
-            #[test]
-            fn get_success() {
-                let list = ll![20, 82, 21, 05];
-                // Indexes are backwards
-                assert_eq!(list.get(21), Some(1))
-            }
+        #[test]
+        fn get_success() {
+            let list = ll![20, 82, 21, 05];
+            // Indexes are backwards
+            assert_eq!(list.get(21), Some(1))
+        }
 
-            #[test]
-            fn get_last_success() {
-                let list = ll![20, 82, 21, 05];
-                // Indexes are backwards
-                assert_eq!(list.get(20), Some(3))
-            }
+        #[test]
+        fn get_last_success() {
+            let list = ll![20, 82, 21, 05];
+            // Indexes are backwards
+            assert_eq!(list.get(20), Some(3))
+        }
 
-            #[test]
-            fn get_fail() {
-                let list = ll![20, 82, 21, 05];
-                assert_eq!(list.get(14), None)
-            }
+        #[test]
+        fn get_fail() {
+            let list = ll![20, 82, 21, 05];
+            assert_eq!(list.get(14), None)
+        }
 
-            #[test]
-            fn remove_mid() {
-                let mut list = ll![20, 82, 21, 05];
-                list.remove(2);
-                assert_eq!(list, ll![20, 21, 05])
-            }
+        #[test]
+        fn remove_mid() {
+            let mut list = ll![20, 82, 21, 05];
+            list.remove(2);
+            assert_eq!(list, ll![20, 21, 05])
+        }
 
-            #[test]
-            fn remove_start() {
-                let mut list = ll![20, 82, 21, 05];
-                list.remove(0);
-                assert_eq!(list, ll![20, 82, 21])
-            }
+        #[test]
+        fn remove_start() {
+            let mut list = ll![20, 82, 21, 05];
+            list.remove(0);
+            assert_eq!(list, ll![20, 82, 21])
+        }
 
-            #[test]
-            fn print() {
-                println!("{:?}", ll![20, 82, 21, 05]);
-            }
+        #[test]
+        fn print() {
+            println!("{:?}", ll![20, 82, 21, 05]);
+        }
 
-            #[test]
-            fn tuple() {
-                let mut list = ll!(
-                    (4, String::from("Algeria")),
-                    (0, String::from("Bulgaria")),
-                    (-8, String::from("Cambodia"))
-                );
-                let i = list.get_from_closure(|x| x.0 == -8).unwrap();
-                list.remove(i);
-                assert_eq!(
-                    list,
-                    ll!((4, String::from("Algeria")), (0, String::from("Bulgaria")))
-                )
+        #[test]
+        fn tuple() {
+            let mut list = ll!(
+                (4, String::from("Algeria")),
+                (0, String::from("Bulgaria")),
+                (-8, String::from("Cambodia"))
+            );
+            let i = list.get_from_closure(|x| x.0 == -8).unwrap();
+            list.remove(i);
+            assert_eq!(
+                list,
+                ll!((4, String::from("Algeria")), (0, String::from("Bulgaria")))
+            )
+        }
+    }
+}
+
+mod hash_map {
+    use crate::linked_list::LinkedList;
+    use hash::Hashable;
+
+    #[derive(Debug)]
+    pub struct HashMap<K: std::cmp::PartialEq, V: std::cmp::PartialEq> {
+        curr_size: usize,
+        buckets: Vec<LinkedList<(K, V)>>,
+    }
+
+    impl<K: std::cmp::PartialEq + Hashable, V: std::cmp::PartialEq> HashMap<K, V> {
+        fn new_with_size(size: usize) -> Self {
+            let mut buckets = Vec::new();
+            for _ in 0..size {
+                buckets.push(LinkedList::new())
             }
+            Self {
+                curr_size: size,
+                buckets,
+            }
+        }
+
+        fn add(&mut self, key: K, value: V) {
+            // SHA256 always returns 256 bits
+            let hashed: [u8; 8] = hash::HashFn::SHA256.digest(&key.to_message())[..8]
+                .try_into()
+                .unwrap();
+            let hashed = u64::from_be_bytes(hashed) as usize;
+
+            let i = hashed % self.curr_size;
+            self.buckets[i].push((key, value))
+        }
+    }
+
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn new() {
+            let map: HashMap<String, u8> = HashMap::new_with_size(5);
+            println!("{:?}", map)
+        }
+
+        #[test]
+        fn add() {
+            let mut map = HashMap::new_with_size(5);
+            map.add(String::from("Primm"), 14);
+            map.add(String::from("Manonam"), 2082);
+            map.add(String::from("Secret"), 14);
+            println!("{:?}", map)
         }
     }
 }

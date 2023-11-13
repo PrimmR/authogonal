@@ -28,6 +28,16 @@ pub trait Hash {
     }
 }
 
+pub trait Hashable {
+    fn to_message(&self) -> Vec<u8>;
+}
+
+impl Hashable for String {
+    fn to_message(&self) -> Vec<u8> {
+        self.as_bytes().to_vec()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HashFn {
     SHA1,

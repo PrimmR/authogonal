@@ -1194,6 +1194,9 @@ version = "0.1.0"
 [[package]]
 name = "hash-table"
 version = "0.1.0"
+dependencies = [
+ "hash",
+]
 
 [[package]]
 name = "hashbrown"
