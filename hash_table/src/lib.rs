@@ -1,48 +1,52 @@
 mod linked_list {
     // Recursive data type linked list
+    // Stores key value pairs for hashmap
     // Avioding recursive functions as would limit to 127 nodes
     // Indexed 'backwards'
     #[derive(PartialEq)]
-    pub struct LinkedList<T> {
-        head: Link<T>,
+    pub struct LinkedList<K, V> {
+        head: Link<K, V>,
     }
 
-    type Link<T> = Option<Box<Node<T>>>;
+    type Link<K, V> = Option<Box<Node<K, V>>>;
 
     #[derive(Debug, PartialEq)]
-    struct Node<T> {
-        value: T,
-        next: Link<T>,
+    struct Node<K, V> {
+        key: K,
+        value: V,
+        next: Link<K, V>,
     }
 
-    impl<T: std::cmp::PartialEq> LinkedList<T> {
+    impl<K: std::cmp::PartialEq, V> LinkedList<K, V> {
         pub const fn new() -> Self {
             Self { head: None }
         }
 
-        pub fn push(&mut self, val: T) {
+        pub fn push(&mut self, key: K, val: V) {
             let new = Box::new(Node {
+                key,
                 value: val,
                 next: self.head.take(),
             });
             self.head = Some(new);
         }
 
-        fn pop(&mut self) -> Option<T> {
+        fn pop(&mut self) -> Option<(K, V)> {
             match self.head.take() {
                 Some(n) => {
                     self.head = n.next;
-                    Some(n.value)
+                    Some((n.key,n.value))
                 }
                 None => None,
             }
         }
 
-        fn get(&self, val: T) -> Option<usize> {
+// Returns index based on key
+        pub fn get(&self, key: &K) -> Option<usize> {
             let mut node = &self.head;
             let mut i = 0;
             while let Some(n) = node {
-                if n.value == val {
+                if &n.key == key {
                     return Some(i);
                 }
                 node = &n.next;
@@ -52,28 +56,28 @@ mod linked_list {
             None
         }
 
-        pub fn get_from_closure<F>(&self, mut key_fn: F) -> Option<usize>
-        where
-            F: FnMut(&T) -> bool,
-        {
-            let mut node = &self.head;
-            let mut i = 0;
-            while let Some(n) = node {
-                if key_fn(&n.value) {
-                    return Some(i);
-                }
-                node = &n.next;
-                i += 1;
-            }
+        // pub fn get_from_closure<F>(&self, mut key_fn: F) -> Option<usize>
+        // where
+        //     F: FnMut(&T) -> bool,
+        // {
+        //     let mut node = &self.head;
+        //     let mut i = 0;
+        //     while let Some(n) = node {
+        //         if key_fn(&n.value) {
+        //             return Some(i);
+        //         }
+        //         node = &n.next;
+        //         i += 1;
+        //     }
 
-            None
+        //     None
+        // }
+
+        pub fn peek(&self, index: usize) -> (&K,&V) {
+            (&self.get_node(index).key, &self.get_node(index).value)
         }
 
-        pub fn peek(&self, index: usize) -> &T {
-            &self.get_node(index).value
-        }
-
-        fn get_node(&self, index: usize) -> &Node<T> {
+        fn get_node(&self, index: usize) -> &Node<K,V> {
             let mut node = &self.head;
             let mut i = 0;
             while let Some(n) = node {
@@ -88,7 +92,7 @@ mod linked_list {
             panic!("Index out of bounds")
         }
 
-        fn get_node_mut(&mut self, index: usize) -> &mut Node<T> {
+        fn get_node_mut(&mut self, index: usize) -> &mut Node<K,V> {
             let mut node = &mut self.head;
             let mut i = 0;
             while let Some(n) = node {
@@ -118,12 +122,12 @@ mod linked_list {
     }
 
     // Allows for easy printout
-    impl<T: std::fmt::Debug> std::fmt::Debug for LinkedList<T> {
+    impl<K: std::fmt::Debug, V: std::fmt::Debug> std::fmt::Debug for LinkedList<K,V> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             let mut out = String::new();
             let mut node = &self.head;
             while let Some(ref n) = node {
-                out += format!("{:?}, ", n.value).as_str();
+                out += format!("({:?}, {:?}), ", n.key, n.value).as_str();
                 node = &n.next;
             }
             // Remove trailing comma
@@ -131,12 +135,14 @@ mod linked_list {
         }
     }
 
+    // Makes a linked list of key, value pairs from tuples
+    #[allow(unused_macros)]
     macro_rules! ll {
     ( $( $x:expr ),* ) => {
         {
             let mut temp = LinkedList::new();
             $(
-                temp.push($x);
+                temp.push($x.0, $x.1);
             )*
             temp
         }
@@ -149,25 +155,27 @@ mod linked_list {
 
         #[test]
         fn new() {
-            assert_eq!(LinkedList::<u8>::new(), LinkedList { head: None })
+            assert_eq!(LinkedList::<u8, u8>::new(), LinkedList { head: None })
         }
 
         #[test]
         fn add() {
             let mut list = LinkedList::new();
-            list.push(14);
-            assert_eq!(list, ll!(14))
+            list.push(20,82);
+            assert_eq!(list, ll!((20,82)))
         }
 
         #[test]
         fn add_macro() {
-            let list = ll![20, 82];
+            let list = ll![((),20), ((), 82)];
             assert_eq!(
                 list,
                 LinkedList {
                     head: Some(Box::new(Node {
+                        key:(),
                         value: 82,
                         next: Some(Box::new(Node {
+                            key:(),
                             value: 20,
                             next: None
                         }))
@@ -178,48 +186,48 @@ mod linked_list {
 
         #[test]
         fn pop() {
-            let mut list = ll![20, 82, 21, 05];
+            let mut list = ll![(20, 82), (21, 05), (22, 40), (34, 15)];
             list.pop();
-            assert_eq!(list, ll![20, 82, 21])
+            assert_eq!(list, ll![(20, 82), (21, 05), (22, 40)])
         }
 
         #[test]
         fn get_success() {
-            let list = ll![20, 82, 21, 05];
+            let list = ll![(20, 82), (21, 05), (22, 40), (34, 15)];
             // Indexes are backwards
-            assert_eq!(list.get(21), Some(1))
+            assert_eq!(list.get(&21), Some(2))
         }
 
         #[test]
         fn get_last_success() {
-            let list = ll![20, 82, 21, 05];
+            let list = ll![(20, 82), (21, 05), (22, 40), (34, 15)];
             // Indexes are backwards
-            assert_eq!(list.get(20), Some(3))
+            assert_eq!(list.get(&20), Some(3))
         }
 
         #[test]
         fn get_fail() {
-            let list = ll![20, 82, 21, 05];
-            assert_eq!(list.get(14), None)
+            let list = ll![(20, 82), (21, 05), (22, 40), (34, 15)];
+            assert_eq!(list.get(&14), None)
         }
 
         #[test]
         fn remove_mid() {
-            let mut list = ll![20, 82, 21, 05];
+            let mut list = ll![(20, 82), (21, 05), (22, 40), (34, 15)];
             list.remove(2);
-            assert_eq!(list, ll![20, 21, 05])
+            assert_eq!(list, ll![(20, 82), (22, 40), (34, 15)])
         }
 
         #[test]
         fn remove_start() {
-            let mut list = ll![20, 82, 21, 05];
+            let mut list = ll![(20, 82), (21, 05), (22, 40), (34, 15)];
             list.remove(0);
-            assert_eq!(list, ll![20, 82, 21])
+            assert_eq!(list, ll![(20, 82), (21, 05), (22, 40)])
         }
 
         #[test]
         fn print() {
-            println!("{:?}", ll![20, 82, 21, 05]);
+            println!("{:?}", ll![(20, 82), (21, 05), (22, 40), (34, 15)]);
         }
 
         #[test]
@@ -229,7 +237,7 @@ mod linked_list {
                 (0, String::from("Bulgaria")),
                 (-8, String::from("Cambodia"))
             );
-            let i = list.get_from_closure(|x| x.0 == -8).unwrap();
+            let i = list.get(&-8).unwrap();
             list.remove(i);
             assert_eq!(
                 list,
@@ -239,18 +247,19 @@ mod linked_list {
     }
 }
 
-mod hash_map {
+pub mod hash_map {
     use crate::linked_list::LinkedList;
     use hash::Hashable;
 
+    // A static HashMap type utilising linked lists
     #[derive(Debug)]
-    pub struct HashMap<K: std::cmp::PartialEq, V: std::cmp::PartialEq> {
+    pub struct HashMap<K: std::cmp::PartialEq, V> {
         pub size: usize,
-        buckets: Vec<LinkedList<(K, V)>>,
+        buckets: Vec<LinkedList<K, V>>,
     }
 
-    impl<K: std::cmp::PartialEq + Hashable, V: std::cmp::PartialEq> HashMap<K, V> {
-        fn new_with_size(size: usize) -> Self {
+    impl<K: std::cmp::PartialEq + Hashable, V> HashMap<K, V> {
+        pub fn new_with_size(size: usize) -> Self {
             let mut buckets = Vec::new();
             for _ in 0..size {
                 buckets.push(LinkedList::new())
@@ -261,7 +270,7 @@ mod hash_map {
             }
         }
 
-        fn insert(&mut self, key: K, value: V) {
+        pub fn insert(&mut self, key: K, value: V) {
             // SHA256 always returns 256 bits
             let hashed: [u8; 8] = hash::HashFn::SHA256.digest(&key.to_message())[..8]
                 .try_into()
@@ -269,27 +278,27 @@ mod hash_map {
             let hashed = u64::from_be_bytes(hashed) as usize;
 
             let i = hashed % self.size;
-            self.buckets[i].push((key, value))
+            self.buckets[i].push(key, value)
         }
 
-        fn get(&self, key: &K) -> Option<&V> {
+        pub fn get(&self, key: &K) -> Option<&V> {
             let hashed = Self::hash_key(&key);
 
             let i = hashed as usize % self.size;
             let ll = &self.buckets[i];
-            if let Some(index) = ll.get_from_closure(|x| &x.0 == key) {
+            if let Some(index) = ll.get(&key) {
                 Some(&ll.peek(index).1)
             } else {
                 None
             }
         }
 
-        fn remove(&mut self, key: &K) {
+        pub fn remove(&mut self, key: &K) {
             let hashed = Self::hash_key(&key);
 
             let i = hashed as usize % self.size;
             let ll = &mut self.buckets[i];
-            if let Some(index) = ll.get_from_closure(|x| &x.0 == key) {
+            if let Some(index) = ll.get(&key) {
                 ll.remove(index)
             } else {
                 panic!("Attempted to remove non existant item")
@@ -304,6 +313,7 @@ mod hash_map {
         }
     }
 
+    #[cfg(test)]
     mod tests {
         use super::*;
 
@@ -349,8 +359,8 @@ mod hash_map {
             }
 
             let mut map = HashMap::new_with_size(5);
-            map.insert(String::from("Manonam"), S{val:2082});
-            assert_eq!(map.get(&String::from("Manonam")).unwrap(), &S{val:2082});
+            map.insert(String::from("Manonam"), S { val: 2082 });
+            assert_eq!(map.get(&String::from("Manonam")).unwrap(), &S { val: 2082 });
         }
     }
 }

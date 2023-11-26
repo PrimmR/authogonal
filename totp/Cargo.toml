@@ -14,3 +14,4 @@ serde_json = "1.0.106"
 hash = { path = "../hash" }
 sort = { path = "../sort" }
 encrypt = { path = "../encrypt" }
+hash-table = { path = "../hash_table" }

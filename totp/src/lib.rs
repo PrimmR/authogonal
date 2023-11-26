@@ -486,17 +486,17 @@ mod thread {
 
 pub mod ui {
     use crate::file;
-    use encrypt::EncryptionKey;
     use eframe::egui::RichText;
     use eframe::epaint::Color32;
     use eframe::{egui, CreationContext};
+    use encrypt::EncryptionKey;
 
     pub mod main {
         use super::*;
 
         use chrono::Utc;
+        use hash_table::hash_map::HashMap;
         use serde::{Deserialize, Serialize};
-        use std::collections::HashMap;
         use std::sync::mpsc::{Receiver, Sender};
 
         use crate::otp::OTPMethod;
@@ -598,7 +598,8 @@ pub mod ui {
             sort: &SortBy,
         ) -> (Vec<DisplayKey>, HashMap<String, Receiver<OTPMessageOut>>) {
             let mut display_keys = Vec::new();
-            let mut receivers = HashMap::new();
+            // Hashmap size static during runtime, as many new keys are unlikely to be added at once
+            let mut receivers = HashMap::new_with_size(keys.len() + 8);
 
             for key in keys {
                 let (key, reciever) = generate_display_key(ctx, &key);
@@ -672,7 +673,7 @@ pub mod ui {
                     k.sender.send(OTPMessageIn::Close).unwrap();
                     self.keys
                         .remove(self.keys.iter().position(|x| x.name == k.name).unwrap());
-                    self.receivers.remove(&k.name).unwrap();
+                    self.receivers.remove(&k.name);
                     self.to_delete = None;
                 }
             }
@@ -699,7 +700,7 @@ pub mod ui {
             // When thread updates key, write to App state
             fn update_codes(&mut self) {
                 for key in &mut self.keys {
-                    if let Ok(v) = self.receivers[&key.name].try_recv() {
+                    if let Ok(v) = self.receivers.get(&key.name).unwrap().try_recv() {
                         match v {
                             OTPMessageOut::Code(c) => {
                                 key.code = c;
@@ -835,12 +836,12 @@ pub mod ui {
 
                     ui.separator();
                     if ui.button("Add").clicked() {
+                        self.add_key.time = Utc::now().timestamp();
+
                         // If error: display, else: refresh all fields
                         if let Err(e) = file::keys::add(&self.add_key, &self.encryption_key) {
                             self.add_err = e;
                         } else {
-                            self.add_key.time = Utc::now().timestamp();
-
                             let (key, reciever) = generate_display_key(ctx, &self.add_key);
                             self.receivers.insert(key.name.clone(), reciever);
                             self.keys.push(key);
@@ -954,7 +955,8 @@ pub mod ui {
                             .on_hover_text("Warning, this will delete all currently stored codes");
                         if response.clicked() {
                             file::keys::delete_all(&encrypt::password_to_key(&self.password_field));
-                            *(*self.encryption_key).borrow_mut() = Some(encrypt::password_to_key(&self.password_field));
+                            *(*self.encryption_key).borrow_mut() =
+                                Some(encrypt::password_to_key(&self.password_field));
                             frame.close()
                         }
                     })
