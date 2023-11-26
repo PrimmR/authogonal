@@ -15,7 +15,8 @@ pub struct Key {
 }
 
 impl Key {
-    pub fn new(secret: String, name: String, options: CodeOptions, time: i64) -> Self {
+    pub fn new(secret: String, name: String, options: CodeOptions) -> Self {
+        let time = chrono::Utc::now().timestamp();
         Self {
             secret,
             name,
@@ -123,16 +124,25 @@ impl CodeOptions {
             interval,
         }
     }
+
+    pub fn new_or_default(
+        method: Option<otp::OTPMethod>,
+        hash: Option<hash::HashFn>,
+        length: Option<u8>,
+        interval: Option<u32>,
+    ) -> Self {
+        Self {
+            method: method.unwrap_or(otp::OTPMethod::TOTP),
+            hash: hash.unwrap_or(hash::HashFn::SHA1),
+            length: length.unwrap_or(6),
+            interval: interval.unwrap_or(30),
+        }
+    }
 }
 
 impl std::default::Default for CodeOptions {
     fn default() -> Self {
-        Self {
-            method: otp::OTPMethod::TOTP,
-            hash: hash::HashFn::SHA1,
-            length: 6,
-            interval: 30,
-        }
+        Self::new_or_default(None, None, None, None)
     }
 }
 
@@ -142,26 +152,16 @@ mod tests {
 
     #[test]
     fn secret_validate_empty() {
-        Key::new(
-            String::from(""),
-            String::new(),
-            Default::default(),
-            Default::default(),
-        )
-        .validate()
-        .unwrap_err();
+        Key::new(String::from(""), String::new(), Default::default())
+            .validate()
+            .unwrap_err();
     }
 
     #[test]
     fn secret_validate_non_empty() {
-        Key::new(
-            String::from("7A"),
-            String::new(),
-            Default::default(),
-            Default::default(),
-        )
-        .validate()
-        .unwrap();
+        Key::new(String::from("7A"), String::new(), Default::default())
+            .validate()
+            .unwrap();
     }
 
     #[test]
@@ -390,12 +390,7 @@ pub mod otp {
 
         #[test]
         fn regular_to_b32() {
-            let key = Key::new(
-                String::from("Primm"),
-                String::new(),
-                Default::default(),
-                Default::default(),
-            );
+            let key = Key::new(String::from("Primm"), String::new(), Default::default());
             let expect = vec![0x7c, 0x50, 0xc6, 0x00];
             assert_eq!(key.to_b32(), expect)
         }
@@ -500,6 +495,7 @@ pub mod ui {
         use std::sync::mpsc::{Receiver, Sender};
 
         use crate::otp::OTPMethod;
+        use crate::qr;
         use crate::thread;
         use crate::Key;
         use sort::merge_sort;
@@ -835,22 +831,47 @@ pub mod ui {
                     });
 
                     ui.separator();
-                    if ui.button("Add").clicked() {
-                        self.add_key.time = Utc::now().timestamp();
+                    ui.horizontal(|ui| {
+                        if ui.button("Add").clicked() {
+                            self.add_key.time = Utc::now().timestamp();
 
-                        // If error: display, else: refresh all fields
-                        if let Err(e) = file::keys::add(&self.add_key, &self.encryption_key) {
-                            self.add_err = e;
-                        } else {
-                            let (key, reciever) = generate_display_key(ctx, &self.add_key);
-                            self.receivers.insert(key.name.clone(), reciever);
-                            self.keys.push(key);
+                            // If the key is valid: display, else: refresh all fields
+                            if let Err(e) = file::keys::add(&self.add_key, &self.encryption_key) {
+                                self.add_err = e;
+                            } else {
+                                let (key, reciever) = generate_display_key(ctx, &self.add_key);
+                                self.receivers.insert(key.name.clone(), reciever);
+                                self.keys.push(key);
 
-                            self.add_key = Default::default();
-                            self.tab = Tab::Main;
-                            self.add_err = String::new();
-                        }
-                    }
+                                self.add_key = Default::default();
+                                self.tab = Tab::Main;
+                                self.add_err = String::new();
+                            }
+                        };
+
+                        if ui.button("Add From QR").clicked() {
+                            // Ignore if dialogue just closed
+                            if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                // If parsed QR correct: add, if not: throw error
+                                if let Ok(key) = qr::parse(path) {
+                                    // Make sure the key itself is valid
+                                    if let Err(e) = file::keys::add(&key, &self.encryption_key) {
+                                        self.add_err = e;
+                                    } else {
+                                        let (key, reciever) = generate_display_key(ctx, &key);
+                                        self.receivers.insert(key.name.clone(), reciever);
+                                        self.keys.push(key);
+
+                                        self.add_key = Default::default();
+                                        self.tab = Tab::Main;
+                                        self.add_err = String::new();
+                                    }
+                                } else {
+                                    self.add_err = String::from("Could not parse QR")
+                                }
+                            }
+                        };
+                    });
                 });
             }
 
@@ -1065,3 +1086,5 @@ pub mod file {
         }
     }
 }
+
+mod qr;
