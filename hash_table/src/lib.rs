@@ -52,7 +52,7 @@ mod linked_list {
             None
         }
 
-        fn get_from_closure<F>(&self, mut key_fn: F) -> Option<usize>
+        pub fn get_from_closure<F>(&self, mut key_fn: F) -> Option<usize>
         where
             F: FnMut(&T) -> bool,
         {
@@ -67,6 +67,25 @@ mod linked_list {
             }
 
             None
+        }
+
+        pub fn peek(&self, index: usize) -> &T {
+            &self.get_node(index).value
+        }
+
+        fn get_node(&self, index: usize) -> &Node<T> {
+            let mut node = &self.head;
+            let mut i = 0;
+            while let Some(n) = node {
+                if i == index {
+                    return n;
+                }
+
+                node = &n.next;
+                i += 1;
+            }
+
+            panic!("Index out of bounds")
         }
 
         fn get_node_mut(&mut self, index: usize) -> &mut Node<T> {
@@ -84,7 +103,7 @@ mod linked_list {
             panic!("Index out of bounds")
         }
 
-        fn remove(&mut self, index: usize) {
+        pub fn remove(&mut self, index: usize) {
             if index == 0 {
                 self.pop();
             } else {
@@ -226,7 +245,7 @@ mod hash_map {
 
     #[derive(Debug)]
     pub struct HashMap<K: std::cmp::PartialEq, V: std::cmp::PartialEq> {
-        curr_size: usize,
+        pub size: usize,
         buckets: Vec<LinkedList<(K, V)>>,
     }
 
@@ -237,20 +256,51 @@ mod hash_map {
                 buckets.push(LinkedList::new())
             }
             Self {
-                curr_size: size,
+                size: size,
                 buckets,
             }
         }
 
-        fn add(&mut self, key: K, value: V) {
+        fn insert(&mut self, key: K, value: V) {
             // SHA256 always returns 256 bits
             let hashed: [u8; 8] = hash::HashFn::SHA256.digest(&key.to_message())[..8]
                 .try_into()
                 .unwrap();
             let hashed = u64::from_be_bytes(hashed) as usize;
 
-            let i = hashed % self.curr_size;
+            let i = hashed % self.size;
             self.buckets[i].push((key, value))
+        }
+
+        fn get(&self, key: &K) -> Option<&V> {
+            let hashed = Self::hash_key(&key);
+
+            let i = hashed as usize % self.size;
+            let ll = &self.buckets[i];
+            if let Some(index) = ll.get_from_closure(|x| &x.0 == key) {
+                Some(&ll.peek(index).1)
+            } else {
+                None
+            }
+        }
+
+        fn remove(&mut self, key: &K) {
+            let hashed = Self::hash_key(&key);
+
+            let i = hashed as usize % self.size;
+            let ll = &mut self.buckets[i];
+            if let Some(index) = ll.get_from_closure(|x| &x.0 == key) {
+                ll.remove(index)
+            } else {
+                panic!("Attempted to remove non existant item")
+            }
+        }
+
+        fn hash_key(key: &K) -> u64 {
+            let hashed: [u8; 8] = hash::HashFn::SHA256.digest(&key.to_message())[..8]
+                .try_into()
+                .unwrap();
+            u64::from_be_bytes(hashed)
         }
     }
 
@@ -260,16 +310,47 @@ mod hash_map {
         #[test]
         fn new() {
             let map: HashMap<String, u8> = HashMap::new_with_size(5);
-            println!("{:?}", map)
+            assert_eq!(map.size, 5)
         }
 
         #[test]
-        fn add() {
+        fn get_success() {
             let mut map = HashMap::new_with_size(5);
-            map.add(String::from("Primm"), 14);
-            map.add(String::from("Manonam"), 2082);
-            map.add(String::from("Secret"), 14);
-            println!("{:?}", map)
+            map.insert(String::from("Primm"), 14);
+            map.insert(String::from("Manonam"), 2082);
+            map.insert(String::from("Secret"), 14);
+            assert_eq!(map.get(&String::from("Primm")).unwrap(), &14)
+        }
+
+        #[test]
+        fn get_fail() {
+            let mut map = HashMap::new_with_size(5);
+            map.insert(String::from("Primm"), 14);
+            map.insert(String::from("Manonam"), 2082);
+            map.insert(String::from("Secret"), 14);
+            assert_eq!(map.get(&String::from("Pressure")), None)
+        }
+
+        #[test]
+        fn remove() {
+            let mut map = HashMap::new_with_size(5);
+            map.insert(String::from("Primm"), 14);
+            map.insert(String::from("Manonam"), 2082);
+            assert_eq!(map.get(&String::from("Manonam")).unwrap(), &2082);
+            map.remove(&String::from("Manonam"));
+            assert_eq!(map.get(&String::from("Manonam")), None)
+        }
+
+        #[test]
+        fn any_struct() {
+            #[derive(PartialEq, Debug)]
+            struct S {
+                val: u16,
+            }
+
+            let mut map = HashMap::new_with_size(5);
+            map.insert(String::from("Manonam"), S{val:2082});
+            assert_eq!(map.get(&String::from("Manonam")).unwrap(), &S{val:2082});
         }
     }
 }
