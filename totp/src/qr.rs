@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
+use crate::key::{CodeOptions, Key};
+use crate::otp::OTPMethod;
 use hash::HashFn;
 use regex::Regex;
-use crate::otp::OTPMethod;
-use crate::{Key, CodeOptions};
 
 // Reads raw data from QR
 fn read_qr(img_path: PathBuf) -> Result<String, Box<dyn std::error::Error>> {
@@ -73,19 +73,37 @@ fn parse_params(params: String) -> Result<Params, Box<dyn std::error::Error>> {
     };
 
     let digits = if let Some(digits) = digits_re.captures(&params) {
-        Some(digits.get(1).ok_or(Error::InvalidParamater)?.as_str().parse()?)
+        Some(
+            digits
+                .get(1)
+                .ok_or(Error::InvalidParamater)?
+                .as_str()
+                .parse()?,
+        )
     } else {
         None
     };
 
     let counter = if let Some(counter) = counter_re.captures(&params) {
-        Some(counter.get(1).ok_or(Error::InvalidParamater)?.as_str().parse()?)
+        Some(
+            counter
+                .get(1)
+                .ok_or(Error::InvalidParamater)?
+                .as_str()
+                .parse()?,
+        )
     } else {
         None
     };
-    
+
     let period = if let Some(period) = period_re.captures(&params) {
-        Some(period.get(1).ok_or(Error::InvalidParamater)?.as_str().parse()?)
+        Some(
+            period
+                .get(1)
+                .ok_or(Error::InvalidParamater)?
+                .as_str()
+                .parse()?,
+        )
     } else {
         None
     };
@@ -122,21 +140,48 @@ mod tests {
     #[test]
     fn google() {
         let key = parse(PathBuf::from("src/test_data/qr/google.png"));
-        assert_eq!(key.unwrap(), Key::new(String::from("JBSWY3DPEHPK3PXP"), String::from("Example:alice@google.com"), Default::default()))
+        assert_eq!(
+            key.unwrap(),
+            Key::new(
+                String::from("JBSWY3DPEHPK3PXP"),
+                String::from("Example:alice@google.com"),
+                Default::default()
+            )
+        )
     }
 
     #[test]
     fn hotp() {
         let key = parse(PathBuf::from("src/test_data/qr/hotp.png"));
-        let options = CodeOptions::new_or_default(Some(OTPMethod::HOTP(20)), Some(HashFn::SHA256), None, None);
-        assert_eq!(key.unwrap(), Key::new(String::from("JBSWY3DPEHPK3PXP"), String::from("Example:alice@google.com"), options))
+        let options = CodeOptions::new_or_default(
+            Some(OTPMethod::HOTP(20)),
+            Some(HashFn::SHA256),
+            None,
+            None,
+        );
+        assert_eq!(
+            key.unwrap(),
+            Key::new(
+                String::from("JBSWY3DPEHPK3PXP"),
+                String::from("Example:alice@google.com"),
+                options
+            )
+        )
     }
 
     #[test]
     fn totp() {
         let key = parse(PathBuf::from("src/test_data/qr/totp.png"));
-        let options = CodeOptions::new_or_default(Some(OTPMethod::TOTP), Some(HashFn::SHA512), Some(4), Some(15));
-        assert_eq!(key.unwrap(), Key::new(String::from("manonam"), String::from("Primm"), options))
+        let options = CodeOptions::new_or_default(
+            Some(OTPMethod::TOTP),
+            Some(HashFn::SHA512),
+            Some(4),
+            Some(15),
+        );
+        assert_eq!(
+            key.unwrap(),
+            Key::new(String::from("manonam"), String::from("Primm"), options)
+        )
     }
 
     // Has an empty secret
