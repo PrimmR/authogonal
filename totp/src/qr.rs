@@ -1,3 +1,5 @@
+// Handles QR code parsing
+
 use std::path::PathBuf;
 
 use crate::key::{CodeOptions, Key};

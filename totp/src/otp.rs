@@ -1,3 +1,5 @@
+// Generates password code from HMAC
+
 use std::convert::TryInto;
 use std::str;
 

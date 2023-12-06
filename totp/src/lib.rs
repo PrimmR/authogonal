@@ -5,6 +5,8 @@ mod otp;
 mod qr;
 mod thread;
 
+// GUI
+
 pub mod ui {
     use crate::file;
     use eframe::egui::RichText;
@@ -33,7 +35,7 @@ pub mod ui {
             Code(u32),
         }
 
-        // Message from app -> thread 
+        // Message from app -> thread
         #[derive(Debug)]
         pub enum OTPMessageIn {
             Increment(encrypt::EncryptionKey),
@@ -120,7 +122,7 @@ pub mod ui {
             }
         }
 
-        // Creates threads and display keys for each key 
+        // Creates threads and display keys for each key
         fn generate_display_keys(
             ctx: &egui::Context,
             keys: Vec<Key>,
@@ -520,7 +522,7 @@ pub mod ui {
                             file::keys::delete_all(&encrypt::password_to_key(&self.password_field));
                             *(*self.encryption_key).borrow_mut() =
                                 Some(encrypt::password_to_key(&self.password_field));
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Close)
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close)
                         }
                     })
                 });

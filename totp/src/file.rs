@@ -1,3 +1,5 @@
+// Handles interface with reading and writing keys to encrypted files
+
 use std::fs::File;
 use std::path::Path;
 

@@ -56,23 +56,6 @@ mod linked_list {
             None
         }
 
-        // pub fn get_from_closure<F>(&self, mut key_fn: F) -> Option<usize>
-        // where
-        //     F: FnMut(&T) -> bool,
-        // {
-        //     let mut node = &self.head;
-        //     let mut i = 0;
-        //     while let Some(n) = node {
-        //         if key_fn(&n.value) {
-        //             return Some(i);
-        //         }
-        //         node = &n.next;
-        //         i += 1;
-        //     }
-
-        //     None
-        // }
-
         pub fn peek(&self, index: usize) -> (&K,&V) {
             (&self.get_node(index).key, &self.get_node(index).value)
         }

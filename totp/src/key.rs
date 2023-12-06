@@ -1,5 +1,6 @@
+// Structs used throughout the application
+
 use serde::{Deserialize, Serialize};
-use std::default;
 
 // Structs used for the whole library
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -83,7 +84,7 @@ impl Key {
     }
 }
 
-impl default::Default for Key {
+impl std::default::Default for Key {
     fn default() -> Self {
         Self {
             secret: String::from(""),
