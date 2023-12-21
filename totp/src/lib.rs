@@ -5,6 +5,8 @@ mod otp;
 mod qr;
 mod thread;
 
+// GUI
+
 pub mod ui {
     use crate::file;
     use eframe::egui::RichText;
@@ -12,6 +14,7 @@ pub mod ui {
     use eframe::{egui, CreationContext};
     use encrypt::EncryptionKey;
 
+    // Code for main window
     pub mod main {
         use super::*;
 
@@ -26,18 +29,20 @@ pub mod ui {
         use crate::thread;
         use sort::merge_sort;
 
+        // Message from thread -> app
         #[derive(Debug)]
         pub enum OTPMessageOut {
             Code(u32),
         }
 
+        // Message from app -> thread
         #[derive(Debug)]
         pub enum OTPMessageIn {
             Increment(encrypt::EncryptionKey),
             Close,
         }
 
-        // Data retained to be displayed
+        // Data retained from keys to be displayed
         #[derive(Clone)]
         struct DisplayKey {
             code: u32,
@@ -70,6 +75,7 @@ pub mod ui {
             }
         }
 
+        // Sorting option
         #[derive(PartialEq, Serialize, Deserialize)]
         enum SortBy {
             Date, // Oldest one added will have lowest id
@@ -82,6 +88,7 @@ pub mod ui {
             }
         }
 
+        // Tabs
         #[derive(PartialEq)]
         enum Tab {
             Main,
@@ -99,6 +106,7 @@ pub mod ui {
             }
         }
 
+        // User selected settings
         #[derive(Serialize, Deserialize)]
         pub struct AppOptions {
             sort: SortBy,
@@ -114,6 +122,7 @@ pub mod ui {
             }
         }
 
+        // Creates threads and display keys for each key
         fn generate_display_keys(
             ctx: &egui::Context,
             keys: Vec<Key>,
@@ -133,6 +142,7 @@ pub mod ui {
             (display_keys, receivers)
         }
 
+        // Creates a thread and display key for a key (discards unnecessary fields from key)
         fn generate_display_key(
             ctx: &egui::Context,
             key: &Key,
@@ -144,6 +154,7 @@ pub mod ui {
             (display_key, receive)
         }
 
+        // Sorts using merge sort based on user choice
         fn sort_keys(keys: Vec<DisplayKey>, sort: &SortBy) -> Vec<DisplayKey> {
             match sort {
                 SortBy::Date => merge_sort(&keys, |v| v.time),
@@ -154,8 +165,9 @@ pub mod ui {
         // Create App instance & run
         pub fn gui(encryption_key: EncryptionKey) -> Result<(), eframe::Error> {
             let options = eframe::NativeOptions {
-                initial_window_size: Some(egui::vec2(320., 342.)),
-                resizable: false,
+                viewport: egui::ViewportBuilder::default()
+                    .with_inner_size(egui::vec2(320., 342.))
+                    .with_resizable(false),
                 centered: true,
                 ..Default::default()
             };
@@ -166,6 +178,7 @@ pub mod ui {
             )
         }
 
+        // Variables stored when the app is running
         struct App {
             encryption_key: EncryptionKey,
             keys: Vec<DisplayKey>,
@@ -439,10 +452,12 @@ pub mod ui {
         use super::*;
 
         // Create App instance & run
+        // This app takes input, validates the password, then passes the encryption key to the main app through main.rs
         pub fn gui() -> Result<Option<EncryptionKey>, eframe::Error> {
             let options = eframe::NativeOptions {
-                initial_window_size: Some(egui::vec2(320., 160.)),
-                resizable: false,
+                viewport: egui::ViewportBuilder::default()
+                    .with_inner_size(egui::vec2(320., 160.))
+                    .with_resizable(false),
                 centered: true,
                 ..Default::default()
             };
@@ -460,18 +475,20 @@ pub mod ui {
 
             // No chance of panicing, as this code is run after app is dropped
             let out_ref_c = encryption_key.borrow();
+
+            // Return Option<e_key>
             Ok(*out_ref_c)
         }
 
         struct App {
-            // Password not kept in memory, only the hash
+            // Password not kept in memory, only the hash is
             encryption_key: Rc<RefCell<Option<EncryptionKey>>>, // Allows for the string to have multiple references + be interior mutable
             password_field: String,
             error: String,
         }
 
         impl eframe::App for App {
-            fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+            fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.label("Please enter a password");
                     ui.text_edit_singleline(&mut self.password_field);
@@ -494,17 +511,18 @@ pub mod ui {
                                     }
                             } else {
                                 *(*self.encryption_key).borrow_mut() = Some(e_key);
-                                frame.close()
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close)
                             }
                         }
                         let response = ui
                             .button("Set as new password")
                             .on_hover_text("Warning, this will delete all currently stored codes");
                         if response.clicked() {
+                            // Deletes all old codes so new key can be used
                             file::keys::delete_all(&encrypt::password_to_key(&self.password_field));
                             *(*self.encryption_key).borrow_mut() =
                                 Some(encrypt::password_to_key(&self.password_field));
-                            frame.close()
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close)
                         }
                     })
                 });

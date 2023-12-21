@@ -1,3 +1,5 @@
+// Performs arithmetic to generate HMAC from a message
+
 use crate::key::CodeOptions;
 const IPAD: u8 = 0x36;
 const OPAD: u8 = 0x5c;
