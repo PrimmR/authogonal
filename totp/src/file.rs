@@ -37,7 +37,7 @@ pub mod keys {
 
     fn save(keys: &Vec<Key>, e_key: &EncryptionKey) {
         let path = Path::new(KEYPATH);
-        let message = serde_json::to_string_pretty(&keys).unwrap();
+        let message = serde_json::to_string(&keys).unwrap();
         encrypt::save(path, e_key, message).unwrap()
     }
 
