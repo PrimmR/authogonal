@@ -254,13 +254,9 @@ pub mod hash_map {
         }
 
         pub fn insert(&mut self, key: K, value: V) {
-            // SHA256 always returns 256 bits
-            let hashed: [u8; 8] = hash::HashFn::SHA256.digest(&key.to_message())[..8]
-                .try_into()
-                .unwrap();
-            let hashed = u64::from_be_bytes(hashed) as usize;
+            let hashed = Self::hash_key(&key);
 
-            let i = hashed % self.size;
+            let i = hashed as usize % self.size;
             self.buckets[i].push(key, value)
         }
 
@@ -289,6 +285,7 @@ pub mod hash_map {
         }
 
         fn hash_key(key: &K) -> u64 {
+            // SHA256 always returns 256 bits
             let hashed: [u8; 8] = hash::HashFn::SHA256.digest(&key.to_message())[..8]
                 .try_into()
                 .unwrap();
