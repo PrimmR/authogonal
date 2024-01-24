@@ -524,6 +524,7 @@ pub mod sha2 {
 }
 
 // Circular left shift
+#[inline]
 fn left_rot<T>(num: T, by: u8) -> T
 where
     T: std::ops::Shl<u8, Output = T>
@@ -536,6 +537,7 @@ where
 }
 
 // Circular right shift
+#[inline]
 fn right_rot<T>(num: T, by: u8) -> T
 where
     T: std::ops::Shl<u8, Output = T>

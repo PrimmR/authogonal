@@ -5,7 +5,7 @@ use aes_gcm::{
     Aes256Gcm, Key,
 };
 
-use hash::{self, Hashable};
+use hash::Hashable;
 use std::path::Path;
 use std::{
     fs::File,
