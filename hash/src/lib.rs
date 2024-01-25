@@ -1,4 +1,4 @@
-pub trait Hash {
+trait Hash {
     const BLOCK_SIZE: usize = 64;
 
     fn to_vec(&self) -> Vec<u8>;
@@ -74,7 +74,7 @@ impl Bits for u64 {
     const BITS: u8 = Self::BITS as u8;
 }
 
-pub mod sha1 {
+mod sha1 {
     use super::*;
 
     // SHA1
@@ -166,7 +166,7 @@ pub mod sha1 {
     }
 }
 
-pub mod sha2 {
+mod sha2 {
     use super::*;
 
     //SHA256
