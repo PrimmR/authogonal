@@ -20,8 +20,6 @@ pub fn save(
     message: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let key = Key::<Aes256Gcm>::from_slice(key);
-    // Add validation part
-
     let cipher = Aes256Gcm::new(&key);
     // 96-bits, unique per message, stored plain next to encryption
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
@@ -70,9 +68,8 @@ pub fn load(path: &Path, key: &EncryptionKey) -> Result<String, Box<dyn std::err
 pub type EncryptionKey = [u8; 32];
 
 // Generates numerical key from string using hash algorithm
-pub fn password_to_key<'a>(password: &impl Hashable) -> EncryptionKey {
+pub fn password_to_key(password: &impl Hashable) -> EncryptionKey {
     // Note that you can get byte array from slice using the `TryInto` trait:
-
     hash::HashFn::SHA256
         .digest(&password.to_message())
         .try_into()
