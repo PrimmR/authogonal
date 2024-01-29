@@ -45,9 +45,8 @@ impl Key {
     // Validate that chars in Base-32 set
     fn validate_char(secret: &String) -> Result<(), String> {
         let base32chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-        let upper = secret.to_ascii_uppercase();
 
-        if upper.chars().any(|c| !base32chars.contains(c)) {
+        if secret.chars().any(|c| !base32chars.contains(c)) {
             return Err(String::from("Invalid character in secret"));
         }
         Ok(())
@@ -90,7 +89,7 @@ impl std::default::Default for Key {
             secret: String::from(""),
             name: String::from(""),
             options: CodeOptions::default(),
-            time: 0,
+            time: chrono::Utc::now().timestamp(),
         }
     }
 }
