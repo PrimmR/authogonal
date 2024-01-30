@@ -1,13 +1,13 @@
 mod linked_list {
-    // Recursive data type linked list
-    // Stores key value pairs for hashmap
-    // Avioding recursive functions as would limit to 127 nodes
-    // Indexed 'backwards'
+    /// Recursive data type linked list that stores key value pairs for hashmap, but may be used for alternate uses
+    /// Indexed 'backwards', due to the head being at the 'end' of the list
     #[derive(PartialEq)]
     pub struct LinkedList<K, V> {
         head: Link<K, V>,
     }
 
+    // Link is an alias for the composite type of:
+    // Option (so it can contain nothing) of a Box (to allocate data to the heap) of the next Node in the chain
     type Link<K, V> = Option<Box<Node<K, V>>>;
 
     #[derive(Debug, PartialEq)]
@@ -18,11 +18,15 @@ mod linked_list {
     }
 
     impl<K: std::cmp::PartialEq, V> LinkedList<K, V> {
+        /// Creates a list comprised of no nodes
         pub const fn new() -> Self {
             Self { head: None }
         }
 
+        /// Pushes a key value pair to the list
+        /// The head of the list is set as the new key value pair, with the original list being linked to with the next attribute
         pub fn push(&mut self, key: K, val: V) {
+            // Take method is used here to move the data, removing need to clone
             let new = Box::new(Node {
                 key,
                 value: val,
@@ -31,7 +35,9 @@ mod linked_list {
             self.head = Some(new);
         }
 
+        /// Returns an Option containing the first value of the list, removing it
         fn pop(&mut self) -> Option<(K, V)> {
+            // Check for remaining item
             match self.head.take() {
                 Some(n) => {
                     self.head = n.next;
@@ -41,7 +47,7 @@ mod linked_list {
             }
         }
 
-        // Returns index based on key
+        /// Returns an Option containing the index of the item that matches the key
         pub fn get(&self, key: &K) -> Option<usize> {
             let mut node = &self.head;
             let mut i = 0;
@@ -56,13 +62,16 @@ mod linked_list {
             None
         }
 
+        /// Returns references to the key and value at an index
         pub fn peek(&self, index: usize) -> (&K, &V) {
             (&self.get_node(index).key, &self.get_node(index).value)
         }
 
+        // Returns a mutable reference to the node at the specified index
         fn get_node(&self, index: usize) -> &Node<K, V> {
             let mut node = &self.head;
             let mut i = 0;
+            // Simple recursion to get to the node at index
             while let Some(n) = node {
                 if i == index {
                     return n;
@@ -72,9 +81,11 @@ mod linked_list {
                 i += 1;
             }
 
+            // Throw error if index too large
             panic!("Index out of bounds")
         }
 
+        // Similar to the [get_node] method, but returns a mutable reference
         fn get_node_mut(&mut self, index: usize) -> &mut Node<K, V> {
             let mut node = &mut self.head;
             let mut i = 0;
@@ -87,17 +98,22 @@ mod linked_list {
                 i += 1;
             }
 
+            // Throw error if index too large
             panic!("Index out of bounds")
         }
 
+        /// Remove an item located at an index
         pub fn remove(&mut self, index: usize) {
+            // More efficient to simply pop the list if index the first value
             if index == 0 {
                 self.pop();
             } else {
+                // Fetches a mutable reference to the node at the index and assigns to it using a dereference
                 let node = &mut self.get_node_mut(index - 1).next;
                 *node = if let Some(n) = node.take() {
                     n.next
                 } else {
+                    // Throw error if index invalid
                     panic!("Index out of bounds")
                 }
             }
@@ -105,10 +121,12 @@ mod linked_list {
     }
 
     // Allows for easy printout
+    // Ex/ [(20, 82), (21, 05), (22, 40), (34, 15)]
     impl<K: std::fmt::Debug, V: std::fmt::Debug> std::fmt::Debug for LinkedList<K, V> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             let mut out = String::new();
             let mut node = &self.head;
+            // For each node, appends "(k, v), "" to the final string
             while let Some(ref n) = node {
                 out += format!("({:?}, {:?}), ", n.key, n.value).as_str();
                 node = &n.next;
@@ -118,11 +136,13 @@ mod linked_list {
         }
     }
 
-    // Makes a linked list of key, value pairs from tuples
     #[allow(unused_macros)]
+    /// Makes a linked list of key value pairs from a list of tuples
     macro_rules! ll {
+        // Matches any length list passed in
     ( $( $x:expr ),* ) => {
         {
+            // Created new list, pushes all items to it, then returns the list
             let mut temp = LinkedList::new();
             $(
                 temp.push($x.0, $x.1);
@@ -234,16 +254,21 @@ pub mod hash_map {
     use crate::linked_list::LinkedList;
     use hash::Hashable;
 
-    // A static HashMap type utilising linked lists
+    /// A static HashMap type utilising linked lists
+    /// Rehashing is not implemented, meaning the size of the structure cannot be changed after instantiation
+    /// The size attribute holds the number of buckets held by the type, with a greater number of buckets reducing the number of potential collisions
     #[derive(Debug)]
     pub struct HashMap<K: std::cmp::PartialEq, V> {
         pub size: usize,
         buckets: Vec<LinkedList<K, V>>,
     }
 
+    // All key comparison is done from HashMap, as the linked list's K type doesn't require PartialEq
     impl<K: std::cmp::PartialEq + Hashable, V> HashMap<K, V> {
+        /// Creates a new [HashMap] with the specified number of buckets
         pub fn new_with_size(size: usize) -> Self {
             let mut buckets = Vec::new();
+            // Matches with an _ to not bind count index to a variable that won't be used
             for _ in 0..size {
                 buckets.push(LinkedList::new())
             }
@@ -253,18 +278,23 @@ pub mod hash_map {
             }
         }
 
+        /// Adds a new key value pair to the map
         pub fn insert(&mut self, key: K, value: V) {
             let hashed = Self::hash_key(&key);
 
+            // Hash value turned into index by performing modulo operation with the number of buckets stored
             let i = hashed as usize % self.size;
             self.buckets[i].push(key, value)
         }
 
+        /// Returns an Option containing the value for a given key
         pub fn get(&self, key: &K) -> Option<&V> {
             let hashed = Self::hash_key(&key);
 
             let i = hashed as usize % self.size;
             let ll = &self.buckets[i];
+
+            // Tries to find key within linked list at index for the key
             if let Some(index) = ll.get(&key) {
                 Some(&ll.peek(index).1)
             } else {
@@ -272,6 +302,7 @@ pub mod hash_map {
             }
         }
 
+        /// Deletes a key value pair from the map, given a key
         pub fn remove(&mut self, key: &K) {
             let hashed = Self::hash_key(&key);
 
@@ -280,15 +311,18 @@ pub mod hash_map {
             if let Some(index) = ll.get(&key) {
                 ll.remove(index)
             } else {
+                // Panics if key doesn't exist
                 panic!("Attempted to remove non existant item")
             }
         }
 
+        // Generates an index into the vector of buckets using a SHA256 hash
         fn hash_key(key: &K) -> u64 {
-            // SHA256 always returns 256 bits
+            // SHA256 always returns 256 bits, so safe to call unwrap
             let hashed: [u8; 8] = hash::HashFn::SHA256.digest(&key.to_message())[..8]
                 .try_into()
                 .unwrap();
+            // Interprets the array as a big-endian u64 value
             u64::from_be_bytes(hashed)
         }
     }
