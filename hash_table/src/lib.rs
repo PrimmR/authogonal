@@ -35,13 +35,13 @@ mod linked_list {
             match self.head.take() {
                 Some(n) => {
                     self.head = n.next;
-                    Some((n.key,n.value))
+                    Some((n.key, n.value))
                 }
                 None => None,
             }
         }
 
-// Returns index based on key
+        // Returns index based on key
         pub fn get(&self, key: &K) -> Option<usize> {
             let mut node = &self.head;
             let mut i = 0;
@@ -56,11 +56,11 @@ mod linked_list {
             None
         }
 
-        pub fn peek(&self, index: usize) -> (&K,&V) {
+        pub fn peek(&self, index: usize) -> (&K, &V) {
             (&self.get_node(index).key, &self.get_node(index).value)
         }
 
-        fn get_node(&self, index: usize) -> &Node<K,V> {
+        fn get_node(&self, index: usize) -> &Node<K, V> {
             let mut node = &self.head;
             let mut i = 0;
             while let Some(n) = node {
@@ -75,7 +75,7 @@ mod linked_list {
             panic!("Index out of bounds")
         }
 
-        fn get_node_mut(&mut self, index: usize) -> &mut Node<K,V> {
+        fn get_node_mut(&mut self, index: usize) -> &mut Node<K, V> {
             let mut node = &mut self.head;
             let mut i = 0;
             while let Some(n) = node {
@@ -105,7 +105,7 @@ mod linked_list {
     }
 
     // Allows for easy printout
-    impl<K: std::fmt::Debug, V: std::fmt::Debug> std::fmt::Debug for LinkedList<K,V> {
+    impl<K: std::fmt::Debug, V: std::fmt::Debug> std::fmt::Debug for LinkedList<K, V> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             let mut out = String::new();
             let mut node = &self.head;
@@ -144,21 +144,21 @@ mod linked_list {
         #[test]
         fn add() {
             let mut list = LinkedList::new();
-            list.push(20,82);
-            assert_eq!(list, ll!((20,82)))
+            list.push(20, 82);
+            assert_eq!(list, ll!((20, 82)))
         }
 
         #[test]
         fn add_macro() {
-            let list = ll![((),20), ((), 82)];
+            let list = ll![((), 20), ((), 82)];
             assert_eq!(
                 list,
                 LinkedList {
                     head: Some(Box::new(Node {
-                        key:(),
+                        key: (),
                         value: 82,
                         next: Some(Box::new(Node {
-                            key:(),
+                            key: (),
                             value: 20,
                             next: None
                         }))
@@ -214,12 +214,12 @@ mod linked_list {
         }
 
         #[test]
-        fn tuple() {
-            let mut list = ll!(
+        fn mismatched_types() {
+            let mut list = ll![
                 (4, String::from("Algeria")),
                 (0, String::from("Bulgaria")),
                 (-8, String::from("Cambodia"))
-            );
+            ];
             let i = list.get(&-8).unwrap();
             list.remove(i);
             assert_eq!(
@@ -333,14 +333,11 @@ pub mod hash_map {
 
         #[test]
         fn any_struct() {
-            #[derive(PartialEq, Debug)]
-            struct S {
-                val: u16,
-            }
+            struct S {}
 
             let mut map = HashMap::new_with_size(5);
-            map.insert(String::from("Manonam"), S { val: 2082 });
-            assert_eq!(map.get(&String::from("Manonam")).unwrap(), &S { val: 2082 });
+            map.insert(String::from("Manonam"), S {});
+            map.get(&String::from("Manonam")).unwrap();
         }
     }
 }
