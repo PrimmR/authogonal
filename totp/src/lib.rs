@@ -6,7 +6,6 @@ mod qr;
 mod thread;
 
 // GUI
-
 pub mod ui {
     use crate::file;
     use eframe::egui::RichText;
@@ -32,23 +31,24 @@ pub mod ui {
         // Message from thread -> app
         #[derive(Debug)]
         pub enum OTPMessageOut {
-            Code(u32),
+            Code(u32), // Code to display
         }
 
         // Message from app -> thread
         #[derive(Debug)]
         pub enum OTPMessageIn {
-            Increment(encrypt::EncryptionKey),
-            Close,
+            Increment(encrypt::EncryptionKey), // HOTP count should be incremented & saved (w/ encryption key)
+            Close, // Key has been deleted, so thread needs to be closed
         }
 
-        // Data retained from keys to be displayed
+        /// Acts as a stripped down version of [Key] 
+        /// Held by the app instance to be used to display a code
         #[derive(Clone)]
         struct DisplayKey {
             code: u32,
             length: u8,
             name: String,
-            sender: Sender<OTPMessageIn>,
+            sender: Sender<OTPMessageIn>, // Additionally stores a sender to act as a link between application and an individual key's thread
             time: i64,
         }
 
@@ -63,11 +63,13 @@ pub mod ui {
                 }
             }
 
-            // Converts code to string & gives leading 0s
+            // Converts code to String to be displayed
             fn generate_code_string(&self, spacer: bool) -> String {
+                // Converts self.length into usize to be used as a length
                 let d: usize = self.length.into();
+                // Creates a string of a d length representation of the self.code, padded with leading 0s if necessary
                 let mut code = format!("{:0>d$}", self.code, d = d);
-                // Insert space in centre
+                // Insert space in centre if requested and the length is of an even number
                 if spacer && code.len() % 2 == 0 {
                     code.insert(code.len() / 2, ' ')
                 }
@@ -75,11 +77,11 @@ pub mod ui {
             }
         }
 
-        // Sorting option
+        /// An enum to represent a choice of how to sort codes when displayed to the user
         #[derive(PartialEq, Serialize, Deserialize)]
         enum SortBy {
-            Date, // Oldest one added will have lowest id
-            Name,
+            Date, // Oldest one added will have lowest id, so displayed first
+            Name, // Displayed alphabetically ascending
         }
 
         impl Default for SortBy {
@@ -88,7 +90,7 @@ pub mod ui {
             }
         }
 
-        // Tabs
+        /// This enum represents the different tabs that are available in the GUI
         #[derive(PartialEq)]
         enum Tab {
             Main,
@@ -97,6 +99,7 @@ pub mod ui {
         }
 
         impl Tab {
+            // To allow the tab name drawn to the GUI procedurally (using the menu_tabs! macro)
             fn to_str(&self) -> String {
                 match self {
                     Self::Main => String::from("Main"),
@@ -106,7 +109,7 @@ pub mod ui {
             }
         }
 
-        // User selected settings
+        /// This struct is held in app memory and stores all the user's preferences about the program
         #[derive(Serialize, Deserialize)]
         pub struct AppOptions {
             sort: SortBy,
@@ -178,7 +181,7 @@ pub mod ui {
             )
         }
 
-        // Variables stored when the app is running
+        /// Controls the function and state of the GUI
         struct App {
             encryption_key: EncryptionKey,
             keys: Vec<DisplayKey>,
@@ -191,7 +194,7 @@ pub mod ui {
         }
 
         impl eframe::App for App {
-            // Called on interaction / new code
+            // Called on user interaction / new code
             fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
                 self.update_codes();
                 self.draw_menu(&ctx);
@@ -294,7 +297,7 @@ pub mod ui {
                                         .unwrap();
                                 }
 
-                                let popup_id = ui.make_persistent_id("my_unique_id");
+                                let popup_id = ui.make_persistent_id("DEL");
 
                                 if response.interact(egui::Sense::click()).secondary_clicked() {
                                     ui.memory_mut(|mem| mem.toggle_popup(popup_id));
@@ -417,7 +420,7 @@ pub mod ui {
             fn draw_options(&mut self, ctx: &egui::Context) {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("Sort");
+                        ui.label("Sort By");
                         if ui
                             .radio_value(&mut self.options.sort, SortBy::Date, "Time Added")
                             .clicked()

@@ -1,3 +1,5 @@
+// Crate that provides a hash map structure, which makes use of linked lists
+
 mod linked_list {
     /// Recursive data type linked list that stores key value pairs for hashmap, but may be used for alternate uses
     /// Indexed 'backwards', due to the head being at the 'end' of the list
@@ -319,7 +321,7 @@ pub mod hash_map {
         // Generates an index into the vector of buckets using a SHA256 hash
         fn hash_key(key: &K) -> u64 {
             // SHA256 always returns 256 bits, so safe to call unwrap
-            let hashed: [u8; 8] = hash::HashFn::SHA256.digest(&key.to_message())[..8]
+            let hashed: [u8; 8] = hash::HashFn::SHA256.digest(key)[..8]
                 .try_into()
                 .unwrap();
             // Interprets the array as a big-endian u64 value

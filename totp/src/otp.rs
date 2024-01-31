@@ -9,13 +9,16 @@ use chrono::Utc;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+/// An enum to represent the main method to generate codes, either being a time based code (TOTP), or a counter based code (HOTP)
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)] // Needed to be converted to json, cloned implicitly & sorted
 pub enum OTPMethod {
     TOTP,
-    HOTP(u64),
+    HOTP(u64), // Stores current count value
 }
 
 impl OTPMethod {
+    // This is a method to allow for modification of the enum within Rust's concurrency checker
+    /// Increments counter within HOTP variant, doing nothing if self is a TOTP variant 
     pub fn increment_counter(&mut self) {
         match self {
             Self::HOTP(ref mut c) => *c += 1,

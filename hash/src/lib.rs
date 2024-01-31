@@ -1,9 +1,17 @@
+// Implementations for SHA1, SHA256, SHA512
+
+// Shared methods & consts between each hash algorithm
 trait Hash {
+    // Used for when the block size is neccesary to know (e.g. when calculating HMAC)
     const BLOCK_SIZE: usize = 64;
 
+    // Takes self and returns vector of bytes
     fn to_vec(&self) -> Vec<u8>;
+
+    // Method that occurs on each chunk
     fn process_chunks(&self, chunk: &[u8]) -> Self;
 
+    // Method that takes a message and produces hash output
     fn digest(self, message: &[u8]) -> Vec<u8>
     where
         Self: Sized + std::ops::Add<Self, Output = Self>,
@@ -15,29 +23,39 @@ trait Hash {
         // Pre-processing
         message.push(0x80);
 
-        // message len needs to be multiple of (512-64)/8 = 56
+        // Message len needs to be multiple of (512-64)/8= 56
         message = pad_mult(message, 64, 8);
         message.append(&mut u64::to_be_bytes(ml).to_vec());
 
-        // chunk into 512/8= 64 byte chunks
+        // Chunk into 512/8= 64 byte chunks
         let chunks = message.chunks(64);
 
+        // Perform process_chunks on each chunk, accumulating the results into a single result via fold
         let hash = chunks.fold(self, |acc, x| acc.process_chunks(x) + acc);
 
         hash.to_vec()
     }
 }
 
+/// A trait that allows types to be hashed
 pub trait Hashable {
     fn to_message(&self) -> Vec<u8>;
 }
 
+// Strings and byte vectors are the only types that need to be hashed for this project
 impl Hashable for String {
     fn to_message(&self) -> Vec<u8> {
         self.as_bytes().to_vec()
     }
 }
 
+impl Hashable for Vec<u8> {
+    fn to_message(&self) -> Vec<u8> {
+        self.to_vec()
+    }
+}
+
+/// An enum that contains variants for each of the different hash functions this library provides, also providing the [digest](HashFn::digest) method to create a digest from a message
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HashFn {
     SHA1,
@@ -46,14 +64,17 @@ pub enum HashFn {
 }
 
 impl HashFn {
-    pub fn digest(&self, message: &Vec<u8>) -> Vec<u8> {
+    /// Returns an array of bytes from applying the corresponding hash function to the message
+    pub fn digest(&self, message: &impl Hashable) -> Vec<u8> {
+        let message = message.to_message();
         match self {
-            Self::SHA1 => sha1::SHA1Hash::new().digest(message),
-            Self::SHA256 => sha2::SHA256Hash::new().digest(message),
-            Self::SHA512 => sha2::SHA512Hash::new().digest(message),
+            Self::SHA1 => sha1::SHA1Hash::new().digest(&message),
+            Self::SHA256 => sha2::SHA256Hash::new().digest(&message),
+            Self::SHA512 => sha2::SHA512Hash::new().digest(&message),
         }
     }
 
+    /// Returns the block size used in the hash function's algorithm
     pub fn get_block_size(&self) -> usize {
         match self {
             Self::SHA1 => sha1::SHA1Hash::BLOCK_SIZE,

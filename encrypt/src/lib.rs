@@ -1,4 +1,4 @@
-// Crate that will save data encrypted using a password
+// Crate that provides functions to save and load encrypted data with AES256GCM encryption
 
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
@@ -75,7 +75,7 @@ pub fn password_to_key(password: &impl Hashable) -> EncryptionKey {
     // Get byte array from slice using the `TryInto` trait
     // Unwrap will always succeed as SHA256 has constant output size
     hash::HashFn::SHA256
-        .digest(&password.to_message())
+        .digest(password)
         .try_into()
         .unwrap()
 }
