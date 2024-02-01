@@ -1,42 +1,55 @@
-// Performs arithmetic to generate HMAC from a message
+// Performs arithmetic to generate HMAC from a message, using a specified hashing algorithm, which is then used to generate a OTP code
+use hash::HashFn;
 
-use crate::key::CodeOptions;
+// Padding constants
 const IPAD: u8 = 0x36;
 const OPAD: u8 = 0x5c;
 
-pub fn generate(key: &[u8], message: &[u8], options: CodeOptions) -> Vec<u8> {
-    let block_size = options.hash.get_block_size(); // Block size in bytes
-                                                    // let output_size = 40; // Always truncated
+/// Generates a HMAC from a key and messaged, using a specified [hash::HashFn] to compute it
+pub fn generate(key: &[u8], message: &[u8], hash: &HashFn) -> Vec<u8> {
+    let block_size = hash.get_block_size(); // Block size in bytes from the respective hash function
 
-    let block_sized_key = compute_block_sized_key(key, options, block_size);
+    // Make key length = block_size
+    let block_sized_key = compute_block_sized_key(key, &hash, block_size);
 
-    let input_key_pad: Vec<u8> = block_sized_key.iter().map(|x| x ^ IPAD).collect();
-    let output_key_pad: Vec<u8> = block_sized_key.iter().map(|x| x ^ OPAD).collect();
+    // Apply XOR 0x36 then XOR 0x5c to each value in block sized key
+    let inner_key_pad: Vec<u8> = block_sized_key.iter().map(|x| x ^ IPAD).collect();
+    let outer_key_pad: Vec<u8> = block_sized_key.iter().map(|x| x ^ OPAD).collect();
 
-    let digest: Vec<u8> = options
-        .hash
-        .digest(&concat(input_key_pad, message.to_vec()));
-    options.hash.digest(&concat(output_key_pad, digest))
+    // Calculate hash(i_key_pad ∥ message)) where ∥ is the concatenation operator, and hash is the hash function specified by options
+    let digest: Vec<u8> = hash
+        .digest(&concat(inner_key_pad, message.to_vec()));
+    // Output hash(o_key_pad ∥ hash(i_key_pad ∥ message)) where ∥ is the concatenation operator, and hash is the hash function specified by options
+    hash.digest(&concat(outer_key_pad, digest))
 }
 
-fn compute_block_sized_key(key: &[u8], options: CodeOptions, block_size: usize) -> Vec<u8> {
+/// Calculates the key to be used to create the output
+fn compute_block_sized_key(key: &[u8], hash: &HashFn, block_size: usize) -> Vec<u8> {
+    // If the key is too long, hash it first (this will always result in an output <= block_size)
     if key.len() > block_size {
-        options.hash.digest(&key.to_vec())
+        hash.digest(&key.to_vec())
     } else if key.len() < block_size {
+        // If the key is too short, pad with 0s to fill it
         pad(key, block_size)
     } else {
+        // If the key is exactly the right length, return as is
         key[..].to_vec()
     }
 }
 
+/// Increases length of key vector to block_size, padding with 0s
+#[inline]
 fn pad(key: &[u8], block_size: usize) -> Vec<u8> {
     // Panics if too large
+    // Converted to vector, as array sizes are immutable
     let mut pad = key[..].to_vec();
-    // Pads to right
+    // Pads to right, filling with 0s
     pad.resize(block_size, 0);
     pad
 }
 
+/// Provides an easier to read interface for concatenation of 2 vectors
+#[inline]
 fn concat(a: Vec<u8>, b: Vec<u8>) -> Vec<u8> {
     vec![a, b].concat()
 }
@@ -47,7 +60,7 @@ mod tests {
 
     #[test]
     fn regular_hmac() {
-        let mac = generate(b"key", b"Primm", Default::default());
+        let mac = generate(b"key", b"Primm", &HashFn::SHA1);
         assert_eq!(
             mac,
             vec![
@@ -59,7 +72,7 @@ mod tests {
 
     #[test]
     fn empty_hmac() {
-        let mac = generate(b"", b"", Default::default());
+        let mac = generate(b"", b"", &HashFn::SHA1);
         assert_eq!(
             mac,
             vec![
