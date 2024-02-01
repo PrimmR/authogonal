@@ -377,7 +377,7 @@ pub mod ui {
                         if ui.button("Add").clicked() {
                             self.add_key.time = Utc::now().timestamp();
 
-                            // If the key is valid: display, else: refresh all fields
+                            // If the key is valid: display and refresh all fields, else: display error to user
                             if let Err(e) = file::keys::add(&self.add_key, &self.encryption_key) {
                                 self.add_err = e;
                             } else {
