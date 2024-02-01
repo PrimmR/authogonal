@@ -67,7 +67,7 @@ mod tests {
     fn merge_string() {
         assert_eq!(
             merge(&vec!["A", "C", "D"], &vec!["B", "C", "E"], |v| *v),
-            vec!["A", "B", "C", "C", "D", "E",]
+            vec!["A", "B", "C", "C", "D", "E"]
         )
     }
 

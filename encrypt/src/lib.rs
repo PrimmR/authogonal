@@ -1,4 +1,4 @@
-// Crate that will save data encrypted using a password
+// Crate that provides functions to save and load encrypted data with AES256GCM encryption
 
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
@@ -12,18 +12,17 @@ use std::{
     io::{Read, Write},
 };
 
-// Password hash stored separately for verification
-
+// Password hash stored separately and passed into both functions, to prevent the password being kept in memory
+/// Save a message at the specified path, encrypted using an EncryptionKey
 pub fn save(
     path: &Path,
     key: &EncryptionKey,
     message: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Generates cipher from EncryptionKey
     let key = Key::<Aes256Gcm>::from_slice(key);
-    // Add validation part
-
     let cipher = Aes256Gcm::new(&key);
-    // 96-bits, unique per message, stored plain next to encryption
+    // 96-bit one time number, unique per message, safely stored plain next to encryption
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     // Encrypts using AES256GCM
     let ciphertext = match cipher.encrypt(&nonce, message.as_bytes().as_ref()) {
@@ -39,6 +38,8 @@ pub fn save(
     Ok(())
 }
 
+/// Load a message from the specified path, decrypting using an [EncryptionKey]
+/// If a file doesn't exist, a new one will be created and an empty message returned
 pub fn load(path: &Path, key: &EncryptionKey) -> Result<String, Box<dyn std::error::Error>> {
     let key = Key::<Aes256Gcm>::from_slice(key);
     let cipher = Aes256Gcm::new(&key);
@@ -69,22 +70,24 @@ pub fn load(path: &Path, key: &EncryptionKey) -> Result<String, Box<dyn std::err
 // Type alias for improved readability
 pub type EncryptionKey = [u8; 32];
 
-// Generates numerical key from string using hash algorithm
-pub fn password_to_key<'a>(password: &impl Hashable) -> EncryptionKey {
-    // Note that you can get byte array from slice using the `TryInto` trait:
-
+/// Generates an [EncryptionKey] from a [Hashable] type using a SHA256 hash algorithm, to be passed into either [load] or [save]
+pub fn password_to_key(password: &impl Hashable) -> EncryptionKey {
+    // Get byte array from slice using the `TryInto` trait
+    // Unwrap will always succeed as SHA256 has constant output size
     hash::HashFn::SHA256
-        .digest(&password.to_message())
+        .digest(password)
         .try_into()
         .unwrap()
 }
 
+// Error type when needing to return Err
 #[derive(Debug)]
 pub enum Error {
-    ReadError, // ReadError signifies incorrect password
-    WriteError,
+    ReadError,  // Signifies incorrect password
+    WriteError, // Signifies issue with encryption
 }
 
+// Implement error so can be returned with other Error types
 impl std::error::Error for Error {}
 
 impl std::fmt::Display for Error {
