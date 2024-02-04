@@ -1,4 +1,5 @@
 // Performs arithmetic to generate HMAC from a message, using a specified hashing algorithm, which is then used to generate a OTP code
+
 use hash::HashFn;
 
 // Padding constants
@@ -17,8 +18,7 @@ pub fn generate(key: &[u8], message: &[u8], hash: &HashFn) -> Vec<u8> {
     let outer_key_pad: Vec<u8> = block_sized_key.iter().map(|x| x ^ OPAD).collect();
 
     // Calculate hash(i_key_pad ∥ message)) where ∥ is the concatenation operator, and hash is the hash function specified by options
-    let digest: Vec<u8> = hash
-        .digest(&concat(inner_key_pad, message.to_vec()));
+    let digest: Vec<u8> = hash.digest(&concat(inner_key_pad, message.to_vec()));
     // Output hash(o_key_pad ∥ hash(i_key_pad ∥ message)) where ∥ is the concatenation operator, and hash is the hash function specified by options
     hash.digest(&concat(outer_key_pad, digest))
 }

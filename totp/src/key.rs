@@ -24,7 +24,7 @@ impl Key {
         }
     }
 
-    /// Validates that the key can be used to create valid OTP codes 
+    /// Validates that the key can be used to create valid OTP codes
     /// On error, returns an Err variant containing an error message as a string
     pub fn validate(&self) -> Result<(), String> {
         // Validate name not empty
@@ -47,7 +47,7 @@ impl Key {
         Ok(())
     }
 
-    // Validate that chars in Base-32 set
+    /// Validate that chars in Base-32 set
     fn validate_char(secret: &String) -> Result<(), String> {
         // All characters in base 32 character set
         let base32chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
