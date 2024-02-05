@@ -114,7 +114,7 @@ mod tests {
     #[should_panic]
     fn empty() {
         let path = Path::new("test_empty");
-        let plaintext = String::from("");
+        let plaintext = String::new();
         save(
             path,
             &password_to_key(&String::from("a")),

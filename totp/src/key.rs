@@ -103,8 +103,8 @@ impl Key {
 impl std::default::Default for Key {
     fn default() -> Self {
         Self {
-            secret: String::from(""),
-            name: String::from(""),
+            secret: String::new(),
+            name: String::new(),
             options: CodeOptions::default(),
             time: chrono::Utc::now().timestamp(),
         }
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn secret_validate_empty() {
-        Key::new(String::from(""), String::new(), Default::default())
+        Key::new(String::new(), String::new(), Default::default())
             .validate()
             .unwrap_err();
     }
