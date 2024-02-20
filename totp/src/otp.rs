@@ -50,7 +50,7 @@ impl Key {
     }
 }
 
-/// Truncate the MAC array with a generated index to 31 bytes
+/// Truncate the MAC array with a generated index to 31 bits
 fn truncate(mac: &Vec<u8>) -> u32 {
     // Takes the 4 least significant bits of the MAC and use them as a byte offset
     let lsb = mac[mac.len() - 1] & 0b00001111;

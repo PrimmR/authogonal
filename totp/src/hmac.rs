@@ -6,7 +6,7 @@ use hash::HashFn;
 const IPAD: u8 = 0x36;
 const OPAD: u8 = 0x5c;
 
-/// Generates a HMAC from a key and messaged, using a specified [hash::HashFn] to compute it
+/// Generates a HMAC from a key and message, using a specified [hash::HashFn] to compute it
 pub fn generate(key: &[u8], message: &[u8], hash: &HashFn) -> Vec<u8> {
     let block_size = hash.get_block_size(); // Block size in bytes from the respective hash function
 
