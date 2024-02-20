@@ -18,7 +18,7 @@ where
     }
 }
 
-// Merge single element vectors into sorted vec
+// Merge two individually sorted vectors into a single sorted vec
 fn merge<T, F, K>(left: &Vec<T>, right: &Vec<T>, mut key_fn: F) -> Vec<T>
 where
     T: Clone,
