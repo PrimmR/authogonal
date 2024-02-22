@@ -190,7 +190,7 @@ mod sha1 {
 mod sha2 {
     use super::*;
 
-    //SHA256
+    //SHA256 & SHA512 
     #[derive(Debug)]
     pub struct SHA256Hash(u32, u32, u32, u32, u32, u32, u32, u32);
 
