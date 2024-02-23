@@ -30,7 +30,7 @@ fn compute_block_sized_key(key: &[u8], hash: &HashFn, block_size: usize) -> Vec<
         hash.digest(&key.to_vec())
     } else if key.len() < block_size {
         // If the key is too short, pad with 0s to fill it
-        pad(key, block_size)
+        pad(key, block_size).unwrap()
     } else {
         // If the key is exactly the right length, return as is
         key[..].to_vec()
@@ -39,16 +39,16 @@ fn compute_block_sized_key(key: &[u8], hash: &HashFn, block_size: usize) -> Vec<
 
 /// Increases length of key vector to block_size, padding with 0s
 #[inline]
-fn pad(key: &[u8], block_size: usize) -> Vec<u8> {
+fn pad(key: &[u8], block_size: usize) -> Result<Vec<u8>, ()> {
     // Panics if key length over size to pad to
     if key.len() > block_size {
-        panic!("Attempt to pad key under original size")
+        return Err(());
     }
     // Converted to vector, as array sizes are immutable
     let mut pad = key[..].to_vec();
     // Pads to right, filling with 0s
     pad.resize(block_size, 0);
-    pad
+    Ok(pad)
 }
 
 /// Provides an easier to read interface for concatenation of 2 vectors
@@ -143,12 +143,11 @@ mod tests {
 
     #[test]
     fn padding_key() {
-        assert_eq!(pad(&[20, 82], 8), vec![20, 82, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(pad(&[20, 82], 8).unwrap(), vec![20, 82, 0, 0, 0, 0, 0, 0]);
     }
 
     #[test]
-    #[should_panic]
     fn padding_key_shrink() {
-        pad(&[20, 82], 1);
+        assert!(pad(&[20, 82], 1).is_err());
     }
 }

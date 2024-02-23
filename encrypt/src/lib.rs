@@ -111,7 +111,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn empty() {
         let path = Path::new("test_empty");
         let plaintext = String::new();
@@ -123,6 +122,6 @@ mod tests {
         .unwrap();
         let load = load(path, &password_to_key(&String::from("b")));
         let _ = std::fs::remove_file(path);
-        load.unwrap();
+        assert!(load.is_err());
     }
 }
