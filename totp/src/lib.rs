@@ -568,7 +568,11 @@ pub mod ui {
             fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.label("Please enter a password"); // Label
-                    ui.text_edit_singleline(&mut self.password_field); // Text entry
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.password_field)
+                            .password(true)
+                            .hint_text("Password"),
+                    ); // Password entry
                     ui.vertical_centered(|ui| {
                         ui.label(RichText::new(&self.error).color(Color32::RED))
                         // Error message display in red colour (defaults to not showing)
@@ -576,8 +580,10 @@ pub mod ui {
                     ui.separator();
 
                     ui.horizontal(|ui| {
-                        if ui.button("Enter").clicked() {
-                            // Logic for when enter button clicked
+                        if ui.button("Enter").clicked()
+                            || ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        {
+                            // Logic for when enter button clicked (or enter pressed)
 
                             // Calculate encryption key from
                             let e_key = encrypt::password_to_key(&self.password_field);
