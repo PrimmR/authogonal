@@ -179,7 +179,8 @@ pub mod ui {
             let options = eframe::NativeOptions {
                 viewport: egui::ViewportBuilder::default()
                     .with_inner_size(egui::vec2(320., 342.))
-                    .with_resizable(false),
+                    .with_resizable(false)
+                    .with_icon(egui::IconData::default()),
                 centered: true,
                 ..Default::default()
             };
@@ -525,7 +526,8 @@ pub mod ui {
             let options = eframe::NativeOptions {
                 viewport: egui::ViewportBuilder::default()
                     .with_inner_size(egui::vec2(320., 160.))
-                    .with_resizable(false),
+                    .with_resizable(false)
+                    .with_icon(egui::IconData::default()),
                 centered: true,
                 ..Default::default()
             };
@@ -588,11 +590,17 @@ pub mod ui {
                             // Calculate encryption key from
                             let e_key = encrypt::password_to_key(&self.password_field);
 
-                            // Try to
                             let path = Path::new(crate::file::KEYPATH);
+
+                            // If the keys file doesn't exist, create it
+                            if !path.try_exists().unwrap() {
+                                file::keys::new_file(&e_key);
+                            }
+
                             if let Err(e) = encrypt::load(path, &e_key) {
+                                // If password incorrect
                                 self.error =
-                                    if let encrypt::Error::ReadError = *(e.downcast().unwrap()) {
+                                    if let Some(&encrypt::Error::ReadError) = e.downcast_ref() {
                                         // Downcast converts generic to concrete type
                                         // If error returned is ReadError, set the error box of the GUI to display incorrect password
                                         String::from("Incorrect password")
@@ -612,7 +620,7 @@ pub mod ui {
                             .on_hover_text("Warning, this will delete all currently stored codes"); // Tooltip
                         if response.clicked() {
                             // If reset password button pressed, deletes all old codes so new key can be used
-                            file::keys::delete_all(&encrypt::password_to_key(&self.password_field));
+                            file::keys::new_file(&encrypt::password_to_key(&self.password_field));
                             // Sets the key attribute and closes the window, as with enter button
                             *(*self.encryption_key).borrow_mut() =
                                 Some(encrypt::password_to_key(&self.password_field));

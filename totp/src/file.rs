@@ -82,9 +82,9 @@ pub mod keys {
         }
     }
 
-    /// Delete all keys saved in key file
-    pub fn delete_all(e_key: &EncryptionKey) {
-        // Writes an empty vec to the file, overwriting existin data
+    /// Replaces the current key file with an empty one
+    pub fn new_file(e_key: &EncryptionKey) {
+        // Writes an empty vec to the file, overwriting existing data
         save(&Vec::new(), e_key)
     }
 }
