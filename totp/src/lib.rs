@@ -14,6 +14,10 @@ pub mod ui {
     use eframe::{egui, CreationContext};
     use encrypt::EncryptionKey;
 
+    // Icon Data
+    const ICON_BYTES: &[u8] = include_bytes!("../../icon/Icon.rgba");
+    const ICON_SIZE: u32 = 256;
+
     /// Handles the main window
     pub mod main {
         use super::*;
@@ -192,13 +196,20 @@ pub mod ui {
 
         /// Creates App instance for the main window
         pub fn gui(encryption_key: EncryptionKey) -> Result<(), eframe::Error> {
+            // Set up app icon
+            let icon = egui::IconData {
+                rgba: ICON_BYTES.to_vec(),
+                width: ICON_SIZE,
+                height: ICON_SIZE,
+            };
+
             // App is 320 by 344 and isn't resizable
             // 344px height allows for 4 codes to be displayed without needing to scroll
             let options = eframe::NativeOptions {
                 viewport: egui::ViewportBuilder::default()
                     .with_inner_size(egui::vec2(320., 344.))
                     .with_resizable(false)
-                    .with_icon(egui::IconData::default()),
+                    .with_icon(icon),
                 centered: true,
                 ..Default::default()
             };
@@ -594,12 +605,19 @@ pub mod ui {
         // Create App instance & run
         // This app takes input, validates the password, then passes the encryption key to the main app through main.rs
         pub fn gui() -> Result<Option<EncryptionKey>, eframe::Error> {
+            // Set up app icon
+            let icon = egui::IconData {
+                rgba: ICON_BYTES.to_vec(),
+                width: ICON_SIZE,
+                height: ICON_SIZE,
+            };
+
             // App is 320 by 160 and isn't resizable
             let options = eframe::NativeOptions {
                 viewport: egui::ViewportBuilder::default()
                     .with_inner_size(egui::vec2(320., 160.))
                     .with_resizable(false)
-                    .with_icon(egui::IconData::default()),
+                    .with_icon(icon),
                 centered: true,
                 ..Default::default()
             };
