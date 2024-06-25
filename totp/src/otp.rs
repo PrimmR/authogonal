@@ -22,6 +22,20 @@ impl OTPMethod {
             Self::TOTP => (),
         }
     }
+
+    pub fn strip(&self) -> OTPMethodStripped {
+        match self {
+            Self::HOTP(_) => OTPMethodStripped::HOTP,
+            Self::TOTP => OTPMethodStripped::TOTP,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)] // Needed to be converted to json, cloned implicitly & sorted
+
+pub enum OTPMethodStripped {
+    TOTP,
+    HOTP
 }
 
 impl Key {

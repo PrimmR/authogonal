@@ -10,7 +10,7 @@ mod thread;
 pub mod ui {
     use crate::file;
     use eframe::egui::RichText;
-    use eframe::epaint::Color32;
+    use eframe::epaint::{Color32, Hsva};
     use eframe::{egui, CreationContext};
     use encrypt::EncryptionKey;
 
@@ -24,7 +24,7 @@ pub mod ui {
         use std::sync::mpsc::{Receiver, Sender};
 
         use crate::key::Key;
-        use crate::otp::OTPMethod;
+        use crate::otp::{OTPMethod, OTPMethodStripped};
         use crate::qr;
         use crate::thread;
         use sort::merge_sort;
@@ -33,6 +33,7 @@ pub mod ui {
         #[derive(Debug)]
         pub enum OTPMessageOut {
             Code(u32), // Code to display
+            Tick(f32), // To update progress bar
         }
 
         // Message from app -> thread
@@ -51,16 +52,26 @@ pub mod ui {
             name: String,
             sender: Sender<OTPMessageIn>, // Additionally stores a sender to act as a link between application and an individual key's thread
             time: i64,
+            method: OTPMethodStripped,
+            progress: f32,
         }
 
         impl DisplayKey {
-            fn new(name: String, length: u8, sender: Sender<OTPMessageIn>, time: i64) -> Self {
+            fn new(
+                name: String,
+                length: u8,
+                sender: Sender<OTPMessageIn>,
+                time: i64,
+                method: OTPMethodStripped,
+            ) -> Self {
                 Self {
                     code: 0, // Code updated on thread startup
                     length,
                     name,
                     sender,
                     time,
+                    method,
+                    progress: 0.,
                 }
             }
 
@@ -115,6 +126,7 @@ pub mod ui {
         pub struct AppOptions {
             sort: SortBy,
             spacer: bool,
+            accent: [u8; 3],
         }
 
         impl Default for AppOptions {
@@ -122,6 +134,7 @@ pub mod ui {
                 Self {
                     sort: Default::default(),
                     spacer: true,
+                    accent: [144, 209, 255],
                 }
             }
         }
@@ -157,8 +170,13 @@ pub mod ui {
             // Spawns a thread from the key and saves the Receiver and Sender for 2 way messaging
             let (receive, send) = thread::spawn_thread(&ctx, &key);
             // Creates new display key from attributes of the key
-            let display_key =
-                DisplayKey::new((key.name).to_string(), key.options.length, send, key.time);
+            let display_key = DisplayKey::new(
+                (key.name).to_string(),
+                key.options.length,
+                send,
+                key.time,
+                key.options.method.strip(),
+            );
 
             (display_key, receive)
         }
@@ -174,11 +192,11 @@ pub mod ui {
 
         /// Creates App instance for the main window
         pub fn gui(encryption_key: EncryptionKey) -> Result<(), eframe::Error> {
-            // App is 320 by 342 and isn't resizable
-            // 342px height allows for 4 codes to be displayed without needing to scroll
+            // App is 320 by 344 and isn't resizable
+            // 344px height allows for 4 codes to be displayed without needing to scroll
             let options = eframe::NativeOptions {
                 viewport: egui::ViewportBuilder::default()
-                    .with_inner_size(egui::vec2(320., 342.))
+                    .with_inner_size(egui::vec2(320., 344.))
                     .with_resizable(false)
                     .with_icon(egui::IconData::default()),
                 centered: true,
@@ -245,7 +263,7 @@ pub mod ui {
                     generate_display_keys(&cc.egui_ctx, keys, &options.sort);
 
                 // Returns App type with loaded keys and options, other attributes are set to default
-                Self {
+                let app = Self {
                     encryption_key,
                     keys: display_keys,
                     receivers,
@@ -254,22 +272,50 @@ pub mod ui {
                     add_key: Key::default(),
                     add_err: String::new(),
                     to_delete: None,
-                }
+                };
+
+                // Update colour theme with one loaded from options
+                app.update_accent(&cc.egui_ctx);
+                // Set labels to be non-selectable
+                cc.egui_ctx
+                    .style_mut(|s| s.interaction.selectable_labels = false);
+
+                app
             }
 
             /// Handle receiving keys from threads
             fn update_codes(&mut self) {
                 // Iterate through all keys, checking to see if any have data to receive
                 for key in &mut self.keys {
-                    if let Ok(v) = self.receivers.get(&key.name).unwrap().try_recv() {
+                    while let Ok(v) = self.receivers.get(&key.name).unwrap().try_recv() {
                         match v {
                             OTPMessageOut::Code(c) => {
                                 // If a code is received, update the key's old code with the new one
                                 key.code = c;
                             }
+                            OTPMessageOut::Tick(p) => {
+                                key.progress = p;
+                            }
                         }
                     }
                 }
+            }
+
+            fn update_accent(&self, ctx: &egui::Context) {
+                ctx.style_mut(|style| {
+                    let accent_srgb = Color32::from_rgb(
+                        self.options.accent[0],
+                        self.options.accent[1],
+                        self.options.accent[2],
+                    );
+                    let mut accent_hsv = Hsva::from_srgba_unmultiplied(accent_srgb.to_array());
+                    accent_hsv.v /= 8.;
+                    let dark_srgb = accent_hsv.to_srgb();
+
+                    style.visuals.selection.bg_fill = accent_srgb;
+                    style.visuals.selection.stroke.color =
+                        Color32::from_rgb(dark_srgb[0], dark_srgb[1], dark_srgb[2]);
+                });
             }
 
             //////////////////
@@ -324,6 +370,13 @@ pub mod ui {
                                             .size(30.)
                                             .strong(),
                                         );
+                                        // If the key is a TOTP, show a progress bar that updates every second
+                                        if let OTPMethodStripped::TOTP = key.method {
+                                            ui.add(
+                                                egui::widgets::ProgressBar::new(key.progress)
+                                                    .desired_height(3.),
+                                            );
+                                        }
                                         ui.separator(); // Horizontal Rule
                                     })
                                     .response;
@@ -350,10 +403,19 @@ pub mod ui {
                                     egui::AboveOrBelow::Below, // Menu appears below code
                                     |ui| {
                                         ui.set_max_width(20.0);
+
+                                        // Copy button
+                                        if ui.button("Copy").clicked() {
+                                            ui.output_mut(|o| o.copied_text = key.code.to_string());
+                                            ui.memory_mut(|mem| mem.close_popup())
+                                        }
+
+                                        // Delete button
                                         if ui.button("Delete").clicked() {
                                             // Show delete button that adds the key to the to_delete attribute when clicked
                                             // Cannot be deleted here, as the keys are currently being iterated through
                                             self.to_delete = Some(key.clone());
+                                            ui.memory_mut(|mem| mem.close_popup())
                                         }
                                     },
                                 );
@@ -506,6 +568,16 @@ pub mod ui {
                             file::options::save(&self.options)
                         }
                     });
+                    ui.horizontal(|ui| {
+                        ui.label("Accent");
+                        if ui
+                            .color_edit_button_srgb(&mut self.options.accent)
+                            .clicked_elsewhere()
+                        {
+                            self.update_accent(ctx);
+                            file::options::save(&self.options)
+                        }
+                    })
                 });
             }
         }
@@ -544,7 +616,7 @@ pub mod ui {
                 eframe::run_native(
                     "TOTP", // Window title
                     options,
-                    Box::new(|_cc| Box::<App>::new(App::new(encryption_key_clone))),
+                    Box::new(|cc| Box::<App>::new(App::new(&cc, encryption_key_clone))),
                 )?;
             }
 
@@ -570,11 +642,17 @@ pub mod ui {
             fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.label("Please enter a password"); // Label
-                    ui.add(
+                    let text_field = ui.add(
                         egui::TextEdit::singleline(&mut self.password_field)
                             .password(true)
                             .hint_text("Password"),
                     ); // Password entry
+
+                    // When window opens, focus the text box
+                    if self.is_first_frame(&ui) {
+                        text_field.request_focus();
+                    }
+
                     ui.vertical_centered(|ui| {
                         ui.label(RichText::new(&self.error).color(Color32::RED))
                         // Error message display in red colour (defaults to not showing)
@@ -632,12 +710,26 @@ pub mod ui {
         }
 
         impl App {
-            fn new(encryption_key: Rc<RefCell<Option<EncryptionKey>>>) -> Self {
+            fn new(
+                cc: &CreationContext,
+                encryption_key: Rc<RefCell<Option<EncryptionKey>>>,
+            ) -> Self {
+                cc.egui_ctx
+                    .style_mut(|s| s.interaction.selectable_labels = false);
+
                 Self {
                     encryption_key,
                     password_field: String::new(),
                     error: String::new(),
                 }
+            }
+
+            fn is_first_frame(&self, ui: &egui::Ui) -> bool {
+                ui.input(|i| {
+                    i.events
+                        .iter()
+                        .any(|e| e == &egui::Event::WindowFocused(true))
+                })
             }
         }
     }
