@@ -138,7 +138,7 @@ pub mod ui {
                 Self {
                     sort: Default::default(),
                     spacer: true,
-                    accent: [144, 209, 255],
+                    accent: [118, 187, 232],
                 }
             }
         }
