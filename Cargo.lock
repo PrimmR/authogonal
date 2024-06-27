@@ -460,6 +460,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "authogonal"
+version = "0.1.0"
+dependencies = [
+ "bardecoder",
+ "chrono",
+ "eframe",
+ "encrypt",
+ "hash",
+ "hash-table",
+ "image",
+ "regex",
+ "rfd",
+ "serde",
+ "serde_json",
+ "sort",
+ "winresource",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3213,25 +3232,6 @@ dependencies = [
  "serde_spanned",
  "toml_datetime",
  "winnow",
-]
-
-[[package]]
-name = "totp"
-version = "0.1.0"
-dependencies = [
- "bardecoder",
- "chrono",
- "eframe",
- "encrypt",
- "hash",
- "hash-table",
- "image",
- "regex",
- "rfd",
- "serde",
- "serde_json",
- "sort",
- "winresource",
 ]
 
 [[package]]

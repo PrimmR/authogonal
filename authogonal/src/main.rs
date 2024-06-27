@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release profile
 
-use totp::*;
+use authogonal::*;
 
 // Executed when the program is run, with all errors propegated through the function using the ? operator
 fn main() -> Result<(), eframe::Error> {

@@ -1,7 +1,7 @@
 [workspace]
 
 members = [
-    "totp",
+    "authogonal",
     "hash",
     "sort",
     "encrypt",

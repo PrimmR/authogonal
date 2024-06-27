@@ -214,7 +214,7 @@ pub mod ui {
                 ..Default::default()
             };
             eframe::run_native(
-                "TOTP", // Window title
+                "Authogonal", // Window title
                 options,
                 Box::new(move |cc| Box::<App>::new(App::new(cc, encryption_key))),
             )
@@ -632,7 +632,7 @@ pub mod ui {
             // Extra scope so the App is dropped as soon as possible, meaning the entered password exits memory faster
             {
                 eframe::run_native(
-                    "TOTP", // Window title
+                    "Authogonal", // Window title
                     options,
                     Box::new(|cc| Box::<App>::new(App::new(&cc, encryption_key_clone))),
                 )?;

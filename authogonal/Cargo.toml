@@ -1,12 +1,14 @@
 
 [package]
-name = "totp"
+name = "authogonal"
 version = "0.1.0"
 edition = "2021"
 description = "A simple OTP code generator"
 authors = ["PrimmR"]
+repository = "https://github.com/PrimmR/authogonal"
 
 [package.metadata.bundle]
+name = "Authogonal"
 identifier = "gay.primm.totp"
 icon = ["../icon/bundle/*"]
 
