@@ -30,17 +30,16 @@ Firstly, [install Rust](https://www.rust-lang.org/tools/install).
 
 ### Windows & Linux
 
-In the root of this repo, run  
+In the root of this repo, run:  
 `cargo build --release`
 
-The resulting binary should then be able to be found in `target/release/`.
+The resulting binary can then be found in `target/release/`.
 
 ### MacOS
 
-To correctly build the app file, you will need [cargo-bundle](https://github.com/burtonageo/cargo-bundle), which can be installed using  
-`cargo install cargo-bundle`
+To correctly build the app file, you will need [cargo-bundle](https://github.com/burtonageo/cargo-bundle), which can be installed with `cargo install cargo-bundle`.
 
-Then, in the `authogonal` directory, run
+Then, in the `authogonal` directory, run:  
 `cargo bundle --release`
 
-The resulting app file should then be able to be found in `target/release/`.
+The resulting app file can then be found in `target/release/`.
