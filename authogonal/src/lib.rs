@@ -209,7 +209,8 @@ pub mod ui {
                 viewport: egui::ViewportBuilder::default()
                     .with_inner_size(egui::vec2(320., 344.))
                     .with_resizable(false)
-                    .with_icon(icon),
+                    .with_icon(icon)
+                    .with_maximize_button(false),
                 centered: true,
                 ..Default::default()
             };
@@ -617,7 +618,8 @@ pub mod ui {
                 viewport: egui::ViewportBuilder::default()
                     .with_inner_size(egui::vec2(320., 160.))
                     .with_resizable(false)
-                    .with_icon(icon),
+                    .with_icon(icon)
+                    .with_maximize_button(false),
                 centered: true,
                 ..Default::default()
             };
