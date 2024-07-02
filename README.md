@@ -1,4 +1,8 @@
-# Authogonal
+<h1 align="center">
+    <picture>
+        <img height="256px" style="margin: 0; padding: 0" src="./icon/Banner.svg">
+    </picture>
+</h1>
 
 *Disclaimer: this application is a proof of concept and has not been tested for true security, use at your own risk*  
 
