@@ -6,6 +6,26 @@ This is a small app that will generate One Time Password authentication codes, w
 
 This project was made to demonstrate programming ability, so I have implemented several features that are already available in common crates or the standard library. These crates are available in this repo using Rust's workspace feature, but these crates only have enough functionality to work for the main application. An exception to this is for file encryption, where the [aes_gcm crate](https://docs.rs/aes-gcm/latest/aes_gcm/) is used to ensure some layer of security.
 
+## Install
+
+The application is available for Windows, macOS, and Linux, and can be found under the releases tab. The app creates 2 files to save its data, so I recommend keeping the app in its own directory.
+
+### Windows
+
+Download the executable file and run it by double-clicking. Except for any smart screen complaints, this is all you should need to do.
+
+### macOS
+
+Firstly, download the app file and copy it into the system's `Applications` folder (it will not work when run from `Desktop` or `Downloads`).
+
+Then, because I don't have an Apple developer account, macs will try their hardest to prevent the app from running. To circumvent this, you will need to navigate to the `Security & Privacy` menu in System Preferences and choose the `Open Anyway` option next to the message that the app has been blocked. You should only have to do this once.
+
+Alternatively, you can build and run the application from source to avoid having to do this, which will also give the application permission to be executed from anywhere.
+
+### Linux
+
+Once downloaded, make sure you have executable permissions for the file, using either `chmod` or the file browser UI. Then you should be able to execute the executable as usual, either by double-clicking or by using the terminal.
+
 ## Usage
 
 When you run the application, you will be prompted for a password. On your first time, the password you enter will be set, and it is used to decrypt all important saved data on subsequent uses of the app. To change your password to a new one, please use the `Set as new password` button, which will delete all saved data.
