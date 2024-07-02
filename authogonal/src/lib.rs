@@ -18,6 +18,9 @@ pub mod ui {
     const ICON_BYTES: &[u8] = include_bytes!("../../icon/Icon.rgba");
     const ICON_SIZE: u32 = 256;
 
+    // Application version from manifest
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
+
     /// Handles the main window
     pub mod main {
         use super::*;
@@ -604,7 +607,7 @@ pub mod ui {
 
                         ui.add_space(4.);
 
-                        ui.label(RichText::new("Authogonal v0.1.0").strong().size(28.));
+                        ui.label(RichText::new(format!("Authogonal v{VERSION}")).strong().size(28.));
 
                         ui.label("© PrimmR 2023-24");
                         ui.label("Licensed under GPL-3.0");
