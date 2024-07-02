@@ -33,7 +33,7 @@ pub mod keys {
         if let None = load.iter().find(|k| *k.name == key.name) {
             // Add to end of vector and save again
             load.push(key.clone());
-            save(&load, e_key);
+            save(&load, e_key).unwrap();
             Ok(())
         } else {
             Err(String::from("A key with that name already exists"))
@@ -49,17 +49,17 @@ pub mod keys {
                 .position(|k| &k.name == key_name)
                 .expect("Key not found"), // Panics if key name invalid
         );
-        save(&load, e_key);
+        save(&load, e_key).unwrap();
     }
 
     /// Save function to write a vec of keys to file
-    fn save(keys: &Vec<Key>, e_key: &EncryptionKey) {
+    fn save(keys: &Vec<Key>, e_key: &EncryptionKey) -> Result<(), Box<dyn std::error::Error>> {
         // Create path from key path constant
         let path = get_dir().join(Path::new(KEYPATH));
         // Convert keys to JSON format
         let message = serde_json::to_string(&keys).unwrap();
         // Save using encrypt external module
-        encrypt::save(&path, e_key, message).unwrap()
+        encrypt::save(&path, e_key, message)
     }
 
     /// Load data from key file
@@ -77,18 +77,22 @@ pub mod keys {
     }
 
     /// Increment a specified key's HOTP counter by 1 and save to key file
-    pub fn save_increment(key: &Key, e_key: &EncryptionKey) {
+    pub fn save_increment(
+        key: &Key,
+        e_key: &EncryptionKey,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut keys = load(e_key);
         // Find key in file to increment
         if let Some(k) = keys.iter_mut().find(|k| *k == key) {
             // Deref and increment counter value, then save
             (*k).options.method.increment_counter();
-            save(&keys, e_key)
+            return save(&keys, e_key);
         }
+        Ok(())
     }
 
     /// Replaces the current key file with an empty one
-    pub fn new_file(e_key: &EncryptionKey) {
+    pub fn new_file(e_key: &EncryptionKey) -> Result<(), Box<dyn std::error::Error>> {
         // Writes an empty vec to the file, overwriting existing data
         save(&Vec::new(), e_key)
     }

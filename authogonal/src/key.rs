@@ -95,7 +95,7 @@ impl Key {
     /// Increments the contained HOTP counter by 1
     /// This additionally saves the change to file
     pub fn increment(&mut self, e_key: &encrypt::EncryptionKey) {
-        crate::file::keys::save_increment(&self, e_key);
+        crate::file::keys::save_increment(&self, e_key).unwrap();
         self.options.method.increment_counter();
     }
 }

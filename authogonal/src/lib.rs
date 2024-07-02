@@ -607,7 +607,11 @@ pub mod ui {
 
                         ui.add_space(4.);
 
-                        ui.label(RichText::new(format!("Authogonal v{VERSION}")).strong().size(28.));
+                        ui.label(
+                            RichText::new(format!("Authogonal v{VERSION}"))
+                                .strong()
+                                .size(28.),
+                        );
 
                         ui.label("© PrimmR 2023-24");
                         ui.label("Licensed under GPL-3.0");
@@ -721,7 +725,9 @@ pub mod ui {
 
                             // If the keys file doesn't exist, create it
                             if !path.try_exists().unwrap() {
-                                file::keys::new_file(&e_key);
+                                if let Err(_) = file::keys::new_file(&e_key) {
+                                    self.error = String::from("An error occurred")
+                                }
                             }
 
                             if let Err(e) = encrypt::load(&path, &e_key) {
@@ -747,7 +753,7 @@ pub mod ui {
                             .on_hover_text("Warning, this will delete all currently stored codes"); // Tooltip
                         if response.clicked() {
                             // If reset password button pressed, deletes all old codes so new key can be used
-                            file::keys::new_file(&encrypt::password_to_key(&self.password_field));
+                            file::keys::new_file(&encrypt::password_to_key(&self.password_field)).unwrap();
                             // Sets the key attribute and closes the window, as with enter button
                             *(*self.encryption_key).borrow_mut() =
                                 Some(encrypt::password_to_key(&self.password_field));
