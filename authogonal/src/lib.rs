@@ -724,7 +724,7 @@ pub mod ui {
                                 file::keys::new_file(&e_key);
                             }
 
-                            if let Err(e) = encrypt::load(path, &e_key) {
+                            if let Err(e) = encrypt::load(&path, &e_key) {
                                 // If password incorrect
                                 self.error =
                                     if let Some(&encrypt::Error::ReadError) = e.downcast_ref() {
