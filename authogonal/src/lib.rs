@@ -753,7 +753,11 @@ pub mod ui {
                             .on_hover_text("Warning, this will delete all currently stored codes"); // Tooltip
                         if response.clicked() {
                             // If reset password button pressed, deletes all old codes so new key can be used
-                            file::keys::new_file(&encrypt::password_to_key(&self.password_field)).unwrap();
+                            if let Err(_) = file::keys::new_file(&encrypt::password_to_key(
+                                &self.password_field,
+                            )) {
+                                self.error = String::from("An error occurred")
+                            }
                             // Sets the key attribute and closes the window, as with enter button
                             *(*self.encryption_key).borrow_mut() =
                                 Some(encrypt::password_to_key(&self.password_field));
