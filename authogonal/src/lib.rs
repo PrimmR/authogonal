@@ -757,11 +757,12 @@ pub mod ui {
                                 &self.password_field,
                             )) {
                                 self.error = String::from("An error occurred")
+                            } else {
+                                // Sets the key attribute and closes the window, as with enter button
+                                *(*self.encryption_key).borrow_mut() =
+                                    Some(encrypt::password_to_key(&self.password_field));
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close)
                             }
-                            // Sets the key attribute and closes the window, as with enter button
-                            *(*self.encryption_key).borrow_mut() =
-                                Some(encrypt::password_to_key(&self.password_field));
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close)
                         }
                     })
                 });

@@ -18,7 +18,7 @@ Download the executable file and run it by double-clicking. Except for any smart
 
 Firstly, download the app file and copy it into the system's `Applications` folder (it will not work when run from `Desktop` or `Downloads`).
 
-Then, because I don't have an Apple developer account, macs will try their hardest to prevent the app from running. To circumvent this, you will need to navigate to the `Security & Privacy` menu in System Preferences and choose the `Open Anyway` option next to the message that the app has been blocked. You should only have to do this once.
+Then, because I don't have an Apple developer account, macs will try their hardest to prevent the app from running. To circumvent this, you will need to navigate to the `Security & Privacy` menu in System Preferences after attempting to run it, and then choose the `Open Anyway` option next to the message stating that the app has been blocked. You should only have to do this once.
 
 Alternatively, you can build and run the application from source to avoid having to do this, which will also give the application permission to be executed from anywhere.
 
