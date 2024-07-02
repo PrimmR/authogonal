@@ -62,7 +62,7 @@ pub fn load(path: &Path, key: &EncryptionKey) -> Result<String, Box<dyn std::err
 
         Ok(String::from_utf8(plaintext)?)
     } else {
-        File::create(path).unwrap();
+        File::create(path)?;
         Ok(String::new())
     }
 }

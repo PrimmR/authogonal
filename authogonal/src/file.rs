@@ -8,6 +8,11 @@ pub const KEYPATH: &str = "keys";
 /// Filename for settings file
 pub const SETTINGSPATH: &str = "settings.json";
 
+pub fn get_dir() -> std::path::PathBuf {
+    let exe_path = std::env::current_exe().unwrap();
+    exe_path.parent().unwrap().to_path_buf()
+}
+
 /// Handles operations with the key file
 /// Data stored in the key file is encrypted, so all functions require an [EncryptionKey]
 pub mod keys {
@@ -50,17 +55,17 @@ pub mod keys {
     /// Save function to write a vec of keys to file
     fn save(keys: &Vec<Key>, e_key: &EncryptionKey) {
         // Create path from key path constant
-        let path = Path::new(KEYPATH);
+        let path = get_dir().join(Path::new(KEYPATH));
         // Convert keys to JSON format
         let message = serde_json::to_string(&keys).unwrap();
         // Save using encrypt external module
-        encrypt::save(path, e_key, message).unwrap()
+        encrypt::save(&path, e_key, message).unwrap()
     }
 
     /// Load data from key file
     pub fn load(e_key: &EncryptionKey) -> Vec<Key> {
-        let path = Path::new(KEYPATH);
-        if let Ok(m) = encrypt::load(path, e_key) {
+        let path = get_dir().join(Path::new(KEYPATH));
+        if let Ok(m) = encrypt::load(&path, e_key) {
             if let Ok(v) = serde_json::from_str(&m) {
                 // If decryption succeeds and data is valid JSON, return
                 return v;
@@ -98,7 +103,7 @@ pub mod options {
     /// Save [AppOptions] to settings file
     pub fn save(options: &AppOptions) {
         // Create path from settings path constant
-        let path = Path::new(SETTINGSPATH);
+        let path = get_dir().join(Path::new(SETTINGSPATH));
         // Create file in path location
         let file = File::create(path).unwrap();
         // Convert AppOptions to pretty JSON and write to file
@@ -107,7 +112,9 @@ pub mod options {
 
     /// Load [AppOptions] from settings file
     pub fn load() -> AppOptions {
-        if let Ok(f) = File::open(SETTINGSPATH) {
+        let path = get_dir().join(Path::new(SETTINGSPATH));
+
+        if let Ok(f) = File::open(&path) {
             if let Ok(v) = serde_json::from_reader(f) {
                 // If file could be read and contains valid JSON, return read data
                 return v;

@@ -717,7 +717,7 @@ pub mod ui {
                             // Calculate encryption key from
                             let e_key = encrypt::password_to_key(&self.password_field);
 
-                            let path = Path::new(crate::file::KEYPATH);
+                            let path = crate::file::get_dir().join(Path::new(crate::file::KEYPATH));
 
                             // If the keys file doesn't exist, create it
                             if !path.try_exists().unwrap() {
