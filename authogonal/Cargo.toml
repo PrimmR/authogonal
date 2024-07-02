@@ -10,7 +10,7 @@ repository = "https://github.com/PrimmR/authogonal"
 [package.metadata.bundle]
 name = "Authogonal"
 identifier = "gay.primm.totp"
-icon = ["../icon/bundle/*"]
+icon = ["../icon/bundle/*.png"]
 
 [dependencies]
 # GUI
