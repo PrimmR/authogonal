@@ -42,4 +42,4 @@ To correctly build the app file, you will need [cargo-bundle](https://github.com
 Then, in the `authogonal` directory, run:  
 `cargo bundle --release`
 
-The resulting app file can then be found in `target/release/`.
+The resulting app file can then be found in `target/release/bundle/osx/`.
