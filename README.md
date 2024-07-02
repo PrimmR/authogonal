@@ -1,6 +1,6 @@
 <h1 align="center">
     <picture>
-        <img height="256px" style="margin: 0; padding: 0" src="./icon/Banner.svg">
+        <img height="128px" style="margin: 0; padding: 0" src="./icon/Banner.svg">
     </picture>
 </h1>
 
