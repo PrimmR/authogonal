@@ -112,6 +112,7 @@ pub mod ui {
             Main,
             Add,
             Options,
+            About,
         }
 
         impl Tab {
@@ -121,6 +122,7 @@ pub mod ui {
                     Self::Main => String::from("Main"),
                     Self::Add => String::from("Add"),
                     Self::Options => String::from("Options"),
+                    Self::About => String::from("About"),
                 }
             }
         }
@@ -245,6 +247,7 @@ pub mod ui {
                     Tab::Main => self.draw_main(&ctx),
                     Tab::Add => self.draw_add(&ctx),
                     Tab::Options => self.draw_options(&ctx),
+                    Tab::About => self.draw_about(&ctx),
                 }
 
                 // As keys can't be deleted when being iterated through, they are saved in to_delete attribute and done here
@@ -357,7 +360,7 @@ pub mod ui {
                 // Create top panel with id Menu and call the macro defined above to draw tabs to the tab bar
                 egui::TopBottomPanel::top("Menu").show(ctx, |ui| {
                     ui.horizontal(|ui| {
-                        menu_tabs!(ui, Tab::Main, Tab::Add, Tab::Options);
+                        menu_tabs!(ui, Tab::Main, Tab::Add, Tab::Options, Tab::About);
                     })
                 });
             }
@@ -590,6 +593,29 @@ pub mod ui {
                             file::options::save(&self.options)
                         }
                     })
+                });
+            }
+
+            /// Draw the about tab to the window
+            fn draw_about(&mut self, ctx: &egui::Context) {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.style_mut().spacing.item_spacing[1] += 4.;
+
+                        ui.add_space(4.);
+
+                        ui.label(RichText::new("Authogonal v0.1.0").strong().size(28.));
+
+                        ui.label("© PrimmR 2023-24");
+                        ui.label("Licensed under GPL-3.0");
+
+                        ui.separator();
+
+                        ui.hyperlink_to(
+                            "Visit the source repo",
+                            "https://github.com/PrimmR/authogonal",
+                        )
+                    });
                 });
             }
         }
